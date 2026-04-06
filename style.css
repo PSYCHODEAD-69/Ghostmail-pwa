@@ -316,44 +316,75 @@ input::placeholder, textarea::placeholder { color: var(--text3); font-weight: 40
 }
 
 /* ── THEME TOGGLE SWITCH ─────────────────────────────────────── */
-.theme-switch-wrap {
-  display: flex; align-items: center; gap: 0.35rem;
+/* LEFT = dark (moon), RIGHT = light (sun)
+   checkbox unchecked = dark mode (default)
+   checkbox checked   = light mode             */
+
+.theme-toggle {
+  position: relative; display: inline-block;
+  width: 56px; height: 28px; cursor: pointer;
+  flex-shrink: 0;
 }
-.theme-label {
-  font-size: 0.75rem; color: var(--text3);
-  transition: color var(--transition); line-height: 1;
+.theme-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+.theme-track {
+  position: absolute; inset: 0;
+  background: #1a1a35;
+  border: 1px solid var(--border2);
+  border-radius: 28px;
+  transition: background 0.3s ease, border-color 0.3s ease;
+  display: flex; align-items: center;
 }
 
-.theme-switch {
-  position: relative; display: inline-block;
-  width: 36px; height: 20px; cursor: pointer;
+/* Checked = light mode → track turns light */
+.theme-toggle input:checked ~ .theme-track {
+  background: #e8f4f0;
+  border-color: #0a7a5e;
 }
-.theme-switch input { opacity: 0; width: 0; height: 0; }
+
+/* Thumb — the sliding pill */
 .theme-thumb {
-  position: absolute; inset: 0;
-  background: var(--bg3); border: 1px solid var(--border2);
-  border-radius: 20px;
-  transition: background var(--transition), border-color var(--transition);
-}
-.theme-thumb::before {
-  content: '';
   position: absolute; left: 2px; top: 50%;
   transform: translateY(-50%);
-  width: 14px; height: 14px; border-radius: 50%;
-  background: var(--text3);
-  transition: transform 0.25s ease, background 0.25s ease;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #2a2a4a;
+  border: 1px solid var(--border2);
+  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1),
+              background 0.3s ease, border-color 0.3s ease;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  overflow: hidden;
 }
-.theme-switch input:checked + .theme-thumb {
-  background: var(--accent-dim); border-color: var(--accent);
+
+/* Checked = light mode → move thumb right */
+.theme-toggle input:checked ~ .theme-track .theme-thumb {
+  transform: translate(28px, -50%);
+  background: #ffffff;
+  border-color: #0a7a5e;
+  box-shadow: 0 0 6px rgba(10,122,94,0.35);
 }
-.theme-switch input:checked + .theme-thumb::before {
-  transform: translate(16px, -50%);
-  background: var(--accent);
-  box-shadow: 0 0 6px rgba(0,229,176,0.5);
+
+/* Moon icon — visible in dark mode (unchecked) */
+.icon-moon {
+  font-size: 13px; line-height: 1;
+  color: var(--accent);
+  position: absolute;
+  transition: opacity 0.2s ease;
+  opacity: 1;
 }
-[data-theme="light"] .theme-switch input:checked + .theme-thumb::before {
-  box-shadow: 0 0 6px rgba(10,122,94,0.4);
+
+/* Sun icon — visible in light mode (checked) */
+.icon-sun {
+  font-size: 13px; line-height: 1;
+  color: #f59e0b;
+  position: absolute;
+  transition: opacity 0.2s ease;
+  opacity: 0;
 }
+
+/* Swap icons when checked */
+.theme-toggle input:checked ~ .theme-track .icon-moon { opacity: 0; }
+.theme-toggle input:checked ~ .theme-track .icon-sun  { opacity: 1; }
 
 /* ── LOGOUT BUTTON ───────────────────────────────────────────── */
 .btn-logout {
@@ -526,43 +557,4 @@ input::placeholder, textarea::placeholder { color: var(--text3); font-weight: 40
 .modal-close {
   background: none; border: none; color: var(--text3);
   font-size: 0.95rem; cursor: pointer;
-  transition: color var(--transition); padding: 0.2rem;
-}
-.modal-close:hover { color: var(--danger); }
-.modal-body { padding: 1.2rem 1.25rem; overflow-y: auto; flex: 1; }
-.modal-footer {
-  padding: 0.9rem 1.25rem; border-top: 1px solid var(--border);
-  display: flex; gap: 0.6rem; justify-content: flex-end;
-}
-.preview-row { display: flex; gap: 0.8rem; margin-bottom: 0.65rem; font-size: 0.9rem; }
-.preview-label {
-  font-family: var(--font-mono); font-size: 0.6rem;
-  letter-spacing: 0.15em; color: var(--accent);
-  min-width: 58px; padding-top: 0.18rem; opacity: 0.8;
-}
-.preview-divider { border: none; border-top: 1px solid var(--border); margin: 0.9rem 0; }
-.preview-body {
-  font-size: 0.9rem; color: var(--text2);
-  white-space: pre-wrap; word-break: break-word; line-height: 1.7;
-}
-.preview-attachments {
-  margin-top: 0.8rem; font-family: var(--font-mono);
-  font-size: 0.7rem; color: var(--text3);
-}
-.detail-row { display: flex; gap: 0.8rem; margin-bottom: 0.7rem; font-size: 0.9rem; }
-.detail-label {
-  font-family: var(--font-mono); font-size: 0.6rem;
-  letter-spacing: 0.14em; color: var(--accent);
-  min-width: 68px; padding-top: 0.18rem; opacity: 0.8;
-}
-.detail-body {
-  margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);
-  font-size: 0.9rem; color: var(--text2);
-  white-space: pre-wrap; word-break: break-word; line-height: 1.7;
-}
-
-/* ── SCROLLBAR ───────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  transition: color var(--transition
