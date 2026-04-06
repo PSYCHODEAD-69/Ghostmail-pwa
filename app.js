@@ -43,10 +43,11 @@ function bindEvents() {
   document.getElementById("logout-btn").addEventListener("click", doLogout);
 
   // Theme toggle switch
+  // unchecked = dark mode (moon, left)
+  // checked   = light mode (sun, right)
   const themeCheckbox = document.getElementById("theme-checkbox");
   themeCheckbox.addEventListener("change", () => {
-    const isDark = themeCheckbox.checked;
-    const theme  = isDark ? "dark" : "light";
+    const theme = themeCheckbox.checked ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("gm_theme", theme);
   });
@@ -91,12 +92,12 @@ function bindEvents() {
 
 // ── THEME ─────────────────────────────────────────────────────
 function loadTheme() {
-  const saved    = localStorage.getItem("gm_theme") || "dark";
+  const saved = localStorage.getItem("gm_theme") || "dark";
   document.documentElement.setAttribute("data-theme", saved);
 
-  // Sync toggle checkbox: checked = dark, unchecked = light
+  // unchecked = dark, checked = light
   const cb = document.getElementById("theme-checkbox");
-  if (cb) cb.checked = (saved === "dark");
+  if (cb) cb.checked = (saved === "light");
 }
 
 // ── LOGIN ─────────────────────────────────────────────────────
