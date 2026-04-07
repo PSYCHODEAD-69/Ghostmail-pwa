@@ -33,18 +33,13 @@ function showApp() {
 
 // ── BIND EVENTS ───────────────────────────────────────────────
 function bindEvents() {
-  // Login
   document.getElementById("login-btn").addEventListener("click", doLogin);
   document.getElementById("login-password").addEventListener("keydown", e => {
     if (e.key === "Enter") doLogin();
   });
 
-  // Logout
   document.getElementById("logout-btn").addEventListener("click", doLogout);
 
-  // Theme toggle switch
-  // unchecked = dark mode (moon, left)
-  // checked   = light mode (sun, right)
   const themeCheckbox = document.getElementById("theme-checkbox");
   themeCheckbox.addEventListener("change", () => {
     const theme = themeCheckbox.checked ? "light" : "dark";
@@ -52,12 +47,10 @@ function bindEvents() {
     localStorage.setItem("gm_theme", theme);
   });
 
-  // Tabs
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
 
-  // Alias input
   const aliasInput = document.getElementById("from-alias");
   aliasInput.addEventListener("focus", onAliasInput);
   aliasInput.addEventListener("input", onAliasInput);
@@ -65,26 +58,21 @@ function bindEvents() {
     setTimeout(() => hideAliasSuggestions(), 150);
   });
 
-  // File attach
   document.getElementById("attach-btn").addEventListener("click", () => {
     document.getElementById("file-input").click();
   });
   document.getElementById("file-input").addEventListener("change", onFileSelect);
 
-  // Compose actions
   document.getElementById("preview-btn").addEventListener("click", showPreview);
   document.getElementById("cancel-btn").addEventListener("click", clearCompose);
   document.getElementById("send-btn").addEventListener("click", doSend);
 
-  // Preview modal
   document.getElementById("close-preview").addEventListener("click", closePreview);
   document.getElementById("preview-close-btn").addEventListener("click", closePreview);
   document.getElementById("preview-send-btn").addEventListener("click", doSend);
 
-  // History
   document.getElementById("refresh-history-btn").addEventListener("click", loadHistory);
 
-  // Detail modal
   document.getElementById("close-detail").addEventListener("click", closeDetail);
   document.getElementById("detail-close-btn").addEventListener("click", closeDetail);
   document.getElementById("delete-mail-btn").addEventListener("click", deleteMail);
@@ -94,8 +82,6 @@ function bindEvents() {
 function loadTheme() {
   const saved = localStorage.getItem("gm_theme") || "dark";
   document.documentElement.setAttribute("data-theme", saved);
-
-  // unchecked = dark, checked = light
   const cb = document.getElementById("theme-checkbox");
   if (cb) cb.checked = (saved === "light");
 }
@@ -318,11 +304,9 @@ async function doSend() {
       return;
     }
 
-    // ✅ Success — show message BEFORE clearing form
     closePreview();
     saveAlias(alias);
 
-    // Clear fields but keep success message visible
     document.getElementById("from-alias").value = "";
     document.getElementById("to-address").value  = "";
     document.getElementById("subject").value      = "";
@@ -330,7 +314,6 @@ async function doSend() {
     attachFiles = [];
     renderFileList();
 
-    // Show success after clear
     showSuc(sucEl, "✓ Mail sent successfully!");
 
   } catch {
@@ -352,51 +335,82 @@ function clearCompose() {
   hideMsg(document.getElementById("compose-success"));
 }
 
-// ── HISTORY ───────────────────────────────────────────────────
+// ── HISTORY — NAYA LOGIC ──────────────────────────────────────
+// Pehle fresh token leta hai, phir history fetch karta hai
 async function loadHistory() {
   const el = document.getElementById("history-list");
-  el.innerHTML = `<div class="history-empty">Loading...</div>`;
-
-  if (!token) {
-    el.innerHTML = `<div class="history-empty">Not logged in.</div>`;
-    return;
-  }
+  el.innerHTML = `<div class="history-empty" style="color:#00e5b0">Loading...</div>`;
 
   try {
-    const res = await fetch(`${BACKEND}/history`, {
-      method:  "GET",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+    // Step 1: Token check — agar nahi hai to seedha logout
+    const currentToken = localStorage.getItem("gm_token");
+    if (!currentToken) {
+      el.innerHTML = `<div class="history-empty" style="color:#ff3366">Login nahi hai — logout karke dobara login karo.</div>`;
+      return;
+    }
+
+    // Step 2: History fetch with XMLHttpRequest (fetch ke jagah)
+    // Kuch browsers mein fetch CORS issue karta hai, XHR zyada reliable hai
+    const mails = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", `${BACKEND}/history`, true);
+      xhr.setRequestHeader("Authorization", `Bearer ${currentToken}`);
+      xhr.timeout = 15000;
+
+      xhr.onload = function() {
+        if (xhr.status === 401) {
+          reject(new Error("401"));
+          return;
+        }
+        if (xhr.status === 429) {
+          reject(new Error("429"));
+          return;
+        }
+        if (xhr.status !== 200) {
+          reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText.slice(0, 100)}`));
+          return;
+        }
+        try {
+          const data = JSON.parse(xhr.responseText);
+          resolve(data.mails || []);
+        } catch(e) {
+          reject(new Error("JSON parse failed: " + xhr.responseText.slice(0, 100)));
+        }
+      };
+
+      xhr.onerror = function() {
+        reject(new Error("Network error — internet check karo."));
+      };
+
+      xhr.ontimeout = function() {
+        reject(new Error("Timeout — backend slow hai, dobara try karo."));
+      };
+
+      xhr.send();
     });
 
-    if (res.status === 401) { doLogout(); return; }
+    // Step 3: Render
+    renderHistory(mails);
 
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch(e) {
-      el.innerHTML = `<div class="history-empty">Response parse error: ${text.slice(0,100)}</div>`;
-      return;
-    }
-
-    if (!res.ok) {
-      el.innerHTML = `<div class="history-empty">Error ${res.status}: ${data.error || "Failed to load."}</div>`;
-      return;
-    }
-
-    renderHistory(data.mails || []);
   } catch (err) {
-    el.innerHTML = `<div class="history-empty">Network error: ${err.message}</div>`;
+    if (err.message === "401") {
+      token = null;
+      localStorage.removeItem("gm_token");
+      showLogin();
+      return;
+    }
+    if (err.message === "429") {
+      el.innerHTML = `<div class="history-empty" style="color:#ff3366">Too many requests — 1 minute baad try karo.</div>`;
+      return;
+    }
+    el.innerHTML = `<div class="history-empty" style="color:#ff3366">Error: ${err.message}</div>`;
   }
 }
 
 function renderHistory(mails) {
   const el = document.getElementById("history-list");
   if (!mails.length) {
-    el.innerHTML = `<div class="history-empty">No sent mails yet.</div>`;
+    el.innerHTML = `<div class="history-empty" style="color:#00e5b0">Koi mail nahi bheja abhi tak.</div>`;
     return;
   }
   el.innerHTML = mails.map(m => `
