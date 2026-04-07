@@ -357,26 +357,39 @@ async function loadHistory() {
   const el = document.getElementById("history-list");
   el.innerHTML = `<div class="history-empty">Loading...</div>`;
 
+  if (!token) {
+    el.innerHTML = `<div class="history-empty">Not logged in.</div>`;
+    return;
+  }
+
   try {
     const res = await fetch(`${BACKEND}/history`, {
       method:  "GET",
       headers: {
         "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
     });
 
     if (res.status === 401) { doLogout(); return; }
 
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch(e) {
+      el.innerHTML = `<div class="history-empty">Response parse error: ${text.slice(0,100)}</div>`;
+      return;
+    }
 
     if (!res.ok) {
-      el.innerHTML = `<div class="history-empty">${data.error || "Failed to load."}</div>`;
+      el.innerHTML = `<div class="history-empty">Error ${res.status}: ${data.error || "Failed to load."}</div>`;
       return;
     }
 
     renderHistory(data.mails || []);
   } catch (err) {
-    el.innerHTML = `<div class="history-empty">Network error — try again.</div>`;
+    el.innerHTML = `<div class="history-empty">Network error: ${err.message}</div>`;
   }
 }
 
