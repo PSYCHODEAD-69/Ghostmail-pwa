@@ -362,7 +362,6 @@ async function loadHistory() {
       method:  "GET",
       headers: {
         "Authorization": `Bearer ${token}`,
-        "Content-Type":  "application/json",
       },
     });
 
