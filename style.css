@@ -557,7 +557,13 @@ input::placeholder, textarea::placeholder { color: var(--text3); font-weight: 40
 .modal-close {
   background: none; border: none; color: var(--text3);
   font-size: 0.95rem; cursor: pointer;
-  transition: color var(--transition
+  transition: color var(--transition);
+}
+.modal-body { padding: 1.2rem 1.25rem; overflow-y: auto; flex: 1; }
+.modal-footer {
+  padding: 0.9rem 1.25rem; border-top: 1px solid var(--border);
+  display: flex; gap: 0.6rem; justify-content: flex-end;
+}
 
 .preview-row { display: flex; gap: 0.8rem; margin-bottom: 0.65rem; font-size: 0.9rem; align-items: baseline; }
 .preview-label {
