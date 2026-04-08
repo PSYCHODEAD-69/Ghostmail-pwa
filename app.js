@@ -6,6 +6,8 @@ const DOMAIN  = "psychodead.qzz.io";
 let token         = localStorage.getItem("gm_token") || null;
 let attachFiles   = [];
 let currentMailId = null;
+let selectedMails = new Set();
+let selectionMode = false;
 
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -81,6 +83,8 @@ function bindEvents() {
 
   // History
   document.getElementById("refresh-history-btn").addEventListener("click", loadHistory);
+  document.getElementById("delete-selected-btn").addEventListener("click", deleteSelectedMails);
+  document.getElementById("cancel-selection-btn").addEventListener("click", exitSelectionMode);
 
   // Detail modal
   document.getElementById("close-detail").addEventListener("click", closeDetail);
@@ -395,23 +399,96 @@ function renderHistory(mails) {
   }
   el.innerHTML = mails.map(m => {
     const toStr = Array.isArray(m.to) ? m.to.join(", ") : (m.to || "");
+    const isSelected = selectedMails.has(m.id);
     return `
-    <div class="history-item" data-mail-id="${esc(m.id)}">
+    <div class="history-item${isSelected ? " selected" : ""}" data-mail-id="${esc(m.id)}">
+      ${selectionMode ? `<span class="mail-checkbox">${isSelected ? "☑" : "☐"}</span>` : ""}
       <div class="history-item-subject">${esc(m.subject || "(No Subject)")}</div>
       <div class="history-item-meta">
         <span>▶ ${esc(toStr)}</span>
-        <span>◀ ${esc(m.from)}</span>
+        <span>◀ ${esc(cleanFrom(m.from))}</span>
         <span>◷ ${formatDate(m.sentAt)}</span>
       </div>
     </div>`;
   }).join("");
 
-  // Attach click listeners safely (no inline onclick with raw IDs)
   el.querySelectorAll(".history-item").forEach(item => {
-    item.addEventListener("click", () => showDetail(item.dataset.mailId));
+    const id = item.dataset.mailId;
+
+    // Long press = enter selection mode
+    let pressTimer;
+    item.addEventListener("pointerdown", () => {
+      pressTimer = setTimeout(() => {
+        if (!selectionMode) enterSelectionMode();
+        toggleMailSelection(id);
+        renderHistory(window._historyMails || []);
+      }, 500);
+    });
+    item.addEventListener("pointerup",   () => clearTimeout(pressTimer));
+    item.addEventListener("pointerleave",() => clearTimeout(pressTimer));
+
+    // Normal tap
+    item.addEventListener("click", (e) => {
+      if (selectionMode) {
+        toggleMailSelection(id);
+        renderHistory(window._historyMails || []);
+      } else {
+        showDetail(id);
+      }
+    });
   });
 
   window._historyMails = mails;
+  updateSelectionToolbar();
+}
+
+function cleanFrom(from) {
+  // Remove angle brackets: "Name <email>" → "Name email" or just strip <>
+  return (from || "").replace(/<|>/g, "").trim();
+}
+
+function enterSelectionMode() {
+  selectionMode = true;
+  document.getElementById("selection-toolbar").classList.remove("hidden");
+  document.getElementById("refresh-history-btn").classList.add("hidden");
+}
+
+function exitSelectionMode() {
+  selectionMode = false;
+  selectedMails.clear();
+  document.getElementById("selection-toolbar").classList.add("hidden");
+  document.getElementById("refresh-history-btn").classList.remove("hidden");
+  renderHistory(window._historyMails || []);
+}
+
+function toggleMailSelection(id) {
+  if (selectedMails.has(id)) selectedMails.delete(id);
+  else selectedMails.add(id);
+}
+
+function updateSelectionToolbar() {
+  const count = selectedMails.size;
+  const label = document.getElementById("selection-count");
+  if (label) label.textContent = count > 0 ? `${count} selected` : "Select mails";
+  const btn = document.getElementById("delete-selected-btn");
+  if (btn) btn.disabled = count === 0;
+}
+
+async function deleteSelectedMails() {
+  if (!selectedMails.size) return;
+  if (!confirm(`${selectedMails.size} mail(s) delete karna chahte ho?`)) return;
+
+  const ids = Array.from(selectedMails);
+  for (const id of ids) {
+    try {
+      await fetch(`${BACKEND}/history/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+    } catch {}
+  }
+  exitSelectionMode();
+  loadHistory();
 }
 
 function showDetail(id) {
@@ -422,7 +499,7 @@ function showDetail(id) {
   // mail.to can be a string or array — handle both
   const toStr = Array.isArray(mail.to) ? mail.to.join(", ") : (mail.to || "");
   el.innerHTML = `
-    <div class="detail-row"><span class="detail-label">FROM</span><span>${esc(mail.from)}</span></div>
+    <div class="detail-row"><span class="detail-label">FROM</span><span>${esc(cleanFrom(mail.from))}</span></div>
     <div class="detail-row"><span class="detail-label">TO</span><span>${esc(toStr)}</span></div>
     <div class="detail-row"><span class="detail-label">SUBJECT</span><span>${esc(mail.subject || "(No Subject)")}</span></div>
     <div class="detail-row"><span class="detail-label">DATE</span><span>${formatDate(mail.sentAt)}</span></div>
