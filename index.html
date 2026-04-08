@@ -142,6 +142,11 @@
     <div id="tab-history" class="tab-content">
       <div class="history-toolbar">
         <button id="refresh-history-btn" class="btn-ghost-sm">↻ REFRESH</button>
+        <div id="selection-toolbar" class="hidden" style="display:flex;gap:0.5rem;align-items:center;">
+          <span id="selection-count" style="font-family:var(--font-mono);font-size:0.72rem;color:var(--text2);">Select mails</span>
+          <button id="delete-selected-btn" class="btn-danger-sm" disabled>🗑 DELETE</button>
+          <button id="cancel-selection-btn" class="btn-ghost-sm">✕ CANCEL</button>
+        </div>
       </div>
       <div id="history-list" class="history-list">
         <div class="history-empty">No sent mails yet.</div>
