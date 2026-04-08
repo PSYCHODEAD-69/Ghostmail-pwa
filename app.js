@@ -599,13 +599,36 @@ function showDetail(id, type) {
   }
 
   const el = document.getElementById("detail-content");
+
+  // Render body: if it contains HTML tags, render as HTML in sandboxed iframe-like div
+  // Otherwise render as plain text with links auto-detected
+  const rawBody = mail.body || "(No body)";
+  const hasHtml = /<\s*(a|b|i|u|p|br|div|span|img|h[1-6]|ul|ol|li|table|td|tr|strong|em)\b/i.test(rawBody);
+  let bodyHtml;
+  if (hasHtml) {
+    // Sanitize: allow safe tags only, strip scripts/style/onclick etc.
+    const sanitized = rawBody
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, "")  // remove event attrs
+      .replace(/javascript\s*:/gi, "");
+    bodyHtml = `<div class="detail-body detail-body-html">${sanitized}</div>`;
+  } else {
+    // Plain text: auto-linkify URLs
+    const linked = esc(rawBody).replace(
+      /(https?:\/\/[^\s<>"]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+    );
+    bodyHtml = `<div class="detail-body">${linked}</div>`;
+  }
+
   el.innerHTML = `
     <div class="detail-row"><span class="detail-label">FROM</span><span>${esc(cleanFrom(mail.from))}</span></div>
     <div class="detail-row"><span class="detail-label">TO</span><span>${esc(toStr)}</span></div>
     <div class="detail-row"><span class="detail-label">SUBJECT</span><span>${esc(mail.subject || "(No Subject)")}</span></div>
     <div class="detail-row"><span class="detail-label">DATE</span><span>${formatDate(dateField)}</span></div>
     ${attachHtml}
-    <div class="detail-body">${esc(mail.body || "(No body)")}</div>`;
+    ${bodyHtml}`;
 
   // Bind attachment buttons (need full data — fetch from backend)
   el.querySelectorAll(".att-view-btn").forEach(btn => {
@@ -660,37 +683,36 @@ async function deleteMail() {
 // we add a smarter approach: store full attachment data in a local cache per mail
 // the first time it's fetched (we keep it in window._fullMailCache).
 
-const _fullMailCache = {};
-
 async function openAttachment(mailId, mailType, index, action) {
-  // Try cache first
-  let fullMail = _fullMailCache[mailId];
+  const route = mailType === "inbox" ? "inbox" : "history";
 
-  if (!fullMail || !fullMail.attachments[index]?.data) {
-    // Re-fetch full list (includes data only if backend sends it)
-    // Our backend strips data from list — so we need a detail endpoint.
-    // Workaround: we added detail route GET /history/:id and GET /inbox/:id
-    // in the backend. Fetch it now.
-    const route = mailType === "inbox" ? "inbox" : "history";
-    try {
-      const res = await fetch(`${BACKEND}/${route}/${encodeURIComponent(mailId)}`, {
-        method:  "GET",
-        headers: { "Authorization": `Bearer ${token}` },
-      });
-      if (res.status === 401) { doLogout(); return; }
-      if (!res.ok) { alert("Attachment load failed."); return; }
-      const data = await res.json();
-      fullMail = data.mail;
-      _fullMailCache[mailId] = fullMail;
-    } catch {
-      alert("Network error loading attachment.");
-      return;
-    }
+  // Show loading state on the button
+  const btns = document.querySelectorAll(
+    `[data-mail-id="${mailId}"][data-index="${index}"]`
+  );
+  btns.forEach(b => { b.disabled = true; b.textContent = "…"; });
+
+  let att;
+  try {
+    // Fetch single attachment data from backend (R2 for inbox, KV for sent)
+    const res = await fetch(
+      `${BACKEND}/${route}/${encodeURIComponent(mailId)}/attachment/${index}`,
+      { method: "GET", headers: { "Authorization": `Bearer ${token}` } }
+    );
+    if (res.status === 401) { doLogout(); return; }
+    if (!res.ok) { alert("Attachment load failed."); return; }
+    const data = await res.json();
+    att = data.attachment;
+  } catch {
+    alert("Network error loading attachment.");
+    return;
+  } finally {
+    btns.forEach(b => {
+      b.disabled = false;
+      b.textContent = action === "view" ? "VIEW" : "DL";
+    });
   }
 
-  if (!fullMail) { alert("Mail not found."); return; }
-
-  const att = fullMail.attachments[index];
   if (!att || !att.data) { alert("Attachment data not available."); return; }
 
   const ext      = getExt(att.filename);
@@ -699,12 +721,10 @@ async function openAttachment(mailId, mailType, index, action) {
 
   if (action === "download") {
     triggerDownload(blobUrl, att.filename);
-    // Revoke after small delay
     setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
     return;
   }
 
-  // View
   openViewer(blobUrl, att.filename, ext, mimeType);
 }
 
@@ -806,7 +826,40 @@ function formatSize(bytes) {
 }
 
 function cleanFrom(from) {
-  return (from || "").replace(/<|>/g, "").trim();
+  if (!from) return "";
+  const s = from.trim();
+
+  // Format: "Display Name <email@domain>" — prefer display name
+  const nameEmail = s.match(/^(.+?)\s*<([^>]+)>$/);
+  if (nameEmail) {
+    const name  = nameEmail[1].replace(/^["']|["']$/g, "").trim();
+    const email = nameEmail[2].trim();
+    // If name looks like a UUID/hash (long hex string), skip it
+    if (name && !/^[0-9a-f-]{20,}$/i.test(name)) {
+      return name.length > 28 ? name.slice(0, 26) + "…" : name;
+    }
+    // Fallback: use local part of email (before @)
+    const local = email.split("@")[0] || email;
+    // If local part is a long hash/UUID, show domain instead
+    if (/^[0-9a-f-]{20,}$/i.test(local) || local.length > 30) {
+      const domain = email.split("@")[1] || email;
+      return domain.length > 28 ? domain.slice(0, 26) + "…" : domain;
+    }
+    return local.length > 28 ? local.slice(0, 26) + "…" : local;
+  }
+
+  // Plain email address (no display name)
+  if (s.includes("@")) {
+    const local = s.split("@")[0];
+    if (/^[0-9a-f-]{20,}$/i.test(local) || local.length > 30) {
+      const domain = s.split("@")[1] || s;
+      return domain.length > 28 ? domain.slice(0, 26) + "…" : domain;
+    }
+    return local.length > 28 ? local.slice(0, 26) + "…" : local;
+  }
+
+  // Fallback plain string
+  return s.length > 28 ? s.slice(0, 26) + "…" : s;
 }
 
 function esc(str) {
