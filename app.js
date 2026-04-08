@@ -393,15 +393,18 @@ function renderHistory(mails) {
     el.innerHTML = `<div class="history-empty">No sent mails yet.</div>`;
     return;
   }
-  el.innerHTML = mails.map(m => `
+  el.innerHTML = mails.map(m => {
+    const toStr = Array.isArray(m.to) ? m.to.join(", ") : (m.to || "");
+    return `
     <div class="history-item" data-mail-id="${esc(m.id)}">
-      <div class="history-item-subject">${esc(m.subject)}</div>
+      <div class="history-item-subject">${esc(m.subject || "(No Subject)")}</div>
       <div class="history-item-meta">
-        <span>▶ ${esc(m.to)}</span>
+        <span>▶ ${esc(toStr)}</span>
         <span>◀ ${esc(m.from)}</span>
         <span>◷ ${formatDate(m.sentAt)}</span>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 
   // Attach click listeners safely (no inline onclick with raw IDs)
   el.querySelectorAll(".history-item").forEach(item => {
@@ -416,15 +419,17 @@ function showDetail(id) {
   if (!mail) return;
   currentMailId = id;
   const el = document.getElementById("detail-content");
+  // mail.to can be a string or array — handle both
+  const toStr = Array.isArray(mail.to) ? mail.to.join(", ") : (mail.to || "");
   el.innerHTML = `
     <div class="detail-row"><span class="detail-label">FROM</span><span>${esc(mail.from)}</span></div>
-    <div class="detail-row"><span class="detail-label">TO</span><span>${esc(mail.to)}</span></div>
-    <div class="detail-row"><span class="detail-label">SUBJECT</span><span>${esc(mail.subject)}</span></div>
+    <div class="detail-row"><span class="detail-label">TO</span><span>${esc(toStr)}</span></div>
+    <div class="detail-row"><span class="detail-label">SUBJECT</span><span>${esc(mail.subject || "(No Subject)")}</span></div>
     <div class="detail-row"><span class="detail-label">DATE</span><span>${formatDate(mail.sentAt)}</span></div>
     ${mail.attachments && mail.attachments.length
       ? `<div class="detail-row"><span class="detail-label">FILES</span><span>${mail.attachments.map(a => esc(a)).join(", ")}</span></div>`
       : ""}
-    <div class="detail-body">${esc(mail.body)}</div>`;
+    <div class="detail-body">${esc(mail.body || "(No body)")}</div>`;
   document.getElementById("detail-modal").classList.remove("hidden");
 }
 
