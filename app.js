@@ -43,8 +43,6 @@ function bindEvents() {
   document.getElementById("logout-btn").addEventListener("click", doLogout);
 
   // Theme toggle switch
-  // unchecked = dark mode (moon, left)
-  // checked   = light mode (sun, right)
   const themeCheckbox = document.getElementById("theme-checkbox");
   themeCheckbox.addEventListener("change", () => {
     const theme = themeCheckbox.checked ? "light" : "dark";
@@ -94,8 +92,6 @@ function bindEvents() {
 function loadTheme() {
   const saved = localStorage.getItem("gm_theme") || "dark";
   document.documentElement.setAttribute("data-theme", saved);
-
-  // unchecked = dark, checked = light
   const cb = document.getElementById("theme-checkbox");
   if (cb) cb.checked = (saved === "light");
 }
@@ -318,11 +314,9 @@ async function doSend() {
       return;
     }
 
-    // ✅ Success — show message BEFORE clearing form
     closePreview();
     saveAlias(alias);
 
-    // Clear fields but keep success message visible
     document.getElementById("from-alias").value = "";
     document.getElementById("to-address").value  = "";
     document.getElementById("subject").value      = "";
@@ -330,7 +324,6 @@ async function doSend() {
     attachFiles = [];
     renderFileList();
 
-    // Show success after clear
     showSuc(sucEl, "✓ Mail sent successfully!");
 
   } catch {
@@ -367,6 +360,7 @@ async function loadHistory() {
       method:  "GET",
       headers: {
         "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
       },
     });
 
@@ -392,6 +386,7 @@ async function loadHistory() {
   }
 }
 
+// ── FIX 1: Use data-id attribute instead of inline onclick with raw id ──
 function renderHistory(mails) {
   const el = document.getElementById("history-list");
   if (!mails.length) {
@@ -399,7 +394,7 @@ function renderHistory(mails) {
     return;
   }
   el.innerHTML = mails.map(m => `
-    <div class="history-item" onclick="showDetail('${m.id}')">
+    <div class="history-item" data-mail-id="${esc(m.id)}">
       <div class="history-item-subject">${esc(m.subject)}</div>
       <div class="history-item-meta">
         <span>▶ ${esc(m.to)}</span>
@@ -407,6 +402,12 @@ function renderHistory(mails) {
         <span>◷ ${formatDate(m.sentAt)}</span>
       </div>
     </div>`).join("");
+
+  // Attach click listeners safely (no inline onclick with raw IDs)
+  el.querySelectorAll(".history-item").forEach(item => {
+    item.addEventListener("click", () => showDetail(item.dataset.mailId));
+  });
+
   window._historyMails = mails;
 }
 
