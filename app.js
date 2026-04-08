@@ -7,17 +7,13 @@ let token         = localStorage.getItem("gm_token") || null;
 let attachFiles   = [];
 let currentMailId = null;
 
-// ── HISTORY STORAGE KEY ───────────────────────────────────────
-const HISTORY_KEY = "gm_history";
+const HISTORY_KEY      = "gm_history";
+const SAVED_ALIASES_KEY = "gm_aliases";
 
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   loadTheme();
-  if (token) {
-    showApp();
-  } else {
-    showLogin();
-  }
+  if (token) showApp(); else showLogin();
   bindEvents();
 });
 
@@ -27,25 +23,17 @@ function showLogin() {
   document.getElementById("login-screen").classList.add("active");
   document.getElementById("app-screen").classList.add("hidden");
 }
-
 function showApp() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("app-screen").classList.remove("hidden");
-  loadAliases();
 }
 
 // ── BIND EVENTS ───────────────────────────────────────────────
 function bindEvents() {
-  // Login
   document.getElementById("login-btn").addEventListener("click", doLogin);
-  document.getElementById("login-password").addEventListener("keydown", e => {
-    if (e.key === "Enter") doLogin();
-  });
-
-  // Logout
+  document.getElementById("login-password").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
   document.getElementById("logout-btn").addEventListener("click", doLogout);
 
-  // Theme toggle switch
   const themeCheckbox = document.getElementById("theme-checkbox");
   themeCheckbox.addEventListener("change", () => {
     const theme = themeCheckbox.checked ? "light" : "dark";
@@ -53,39 +41,28 @@ function bindEvents() {
     localStorage.setItem("gm_theme", theme);
   });
 
-  // Tabs
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
 
-  // Alias input
   const aliasInput = document.getElementById("from-alias");
   aliasInput.addEventListener("focus", onAliasInput);
   aliasInput.addEventListener("input", onAliasInput);
-  aliasInput.addEventListener("blur", () => {
-    setTimeout(() => hideAliasSuggestions(), 150);
-  });
+  aliasInput.addEventListener("blur", () => setTimeout(() => hideAliasSuggestions(), 150));
 
-  // File attach
-  document.getElementById("attach-btn").addEventListener("click", () => {
-    document.getElementById("file-input").click();
-  });
+  document.getElementById("attach-btn").addEventListener("click", () => document.getElementById("file-input").click());
   document.getElementById("file-input").addEventListener("change", onFileSelect);
 
-  // Compose actions
   document.getElementById("preview-btn").addEventListener("click", showPreview);
   document.getElementById("cancel-btn").addEventListener("click", clearCompose);
   document.getElementById("send-btn").addEventListener("click", doSend);
 
-  // Preview modal
   document.getElementById("close-preview").addEventListener("click", closePreview);
   document.getElementById("preview-close-btn").addEventListener("click", closePreview);
   document.getElementById("preview-send-btn").addEventListener("click", doSend);
 
-  // History
   document.getElementById("refresh-history-btn").addEventListener("click", loadHistory);
 
-  // Detail modal
   document.getElementById("close-detail").addEventListener("click", closeDetail);
   document.getElementById("detail-close-btn").addEventListener("click", closeDetail);
   document.getElementById("delete-mail-btn").addEventListener("click", deleteMail);
@@ -105,36 +82,20 @@ async function doLogin() {
   const password = document.getElementById("login-password").value.trim();
   const errEl    = document.getElementById("login-error");
   const btn      = document.getElementById("login-btn");
-
-  if (!username || !password) {
-    showError(errEl, "Username aur password dono bharo.");
-    return;
-  }
-
-  setLoading(btn, true);
-  hideMsg(errEl);
-
+  if (!username || !password) { showError(errEl, "Username aur password dono bharo."); return; }
+  setLoading(btn, true); hideMsg(errEl);
   try {
     const res  = await fetch(`${BACKEND}/login`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ username, password }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
     });
     const data = await res.json();
-
-    if (!res.ok) {
-      showError(errEl, data.error || "Login failed.");
-      return;
-    }
-
+    if (!res.ok) { showError(errEl, data.error || "Login failed."); return; }
     token = data.token;
     localStorage.setItem("gm_token", token);
     showApp();
-  } catch {
-    showError(errEl, "Network error — try again.");
-  } finally {
-    setLoading(btn, false);
-  }
+  } catch { showError(errEl, "Network error — try again."); }
+  finally { setLoading(btn, false); }
 }
 
 function doLogout() {
@@ -152,40 +113,25 @@ function switchTab(tabName) {
   if (tabName === "history") loadHistory();
 }
 
-// ── ALIAS SUGGESTIONS ─────────────────────────────────────────
-const SAVED_ALIASES_KEY = "gm_aliases";
-
+// ── ALIAS ─────────────────────────────────────────────────────
 function getSavedAliases() {
-  try { return JSON.parse(localStorage.getItem(SAVED_ALIASES_KEY) || "[]"); }
-  catch { return []; }
+  try { return JSON.parse(localStorage.getItem(SAVED_ALIASES_KEY) || "[]"); } catch { return []; }
 }
-
 function saveAlias(alias) {
   if (!alias) return;
   const list = getSavedAliases();
-  if (!list.includes(alias)) {
-    list.unshift(alias);
-    if (list.length > 10) list.pop();
-    localStorage.setItem(SAVED_ALIASES_KEY, JSON.stringify(list));
-  }
+  if (!list.includes(alias)) { list.unshift(alias); if (list.length > 10) list.pop(); }
+  localStorage.setItem(SAVED_ALIASES_KEY, JSON.stringify(list));
 }
-
-function loadAliases() {}
-
 function onAliasInput() {
   const val  = document.getElementById("from-alias").value.toLowerCase();
-  const list = getSavedAliases().filter(a =>
-    !val || a.toLowerCase().includes(val)
-  );
+  const list = getSavedAliases().filter(a => !val || a.toLowerCase().includes(val));
   renderAliasSuggestions(list);
 }
-
 function renderAliasSuggestions(list) {
   const el = document.getElementById("alias-suggestions");
   if (!list.length) { el.classList.add("hidden"); return; }
-  el.innerHTML = list.map(a =>
-    `<div class="alias-option" data-alias="${a}">${a}@${DOMAIN}</div>`
-  ).join("");
+  el.innerHTML = list.map(a => `<div class="alias-option" data-alias="${a}">${a}@${DOMAIN}</div>`).join("");
   el.classList.remove("hidden");
   el.querySelectorAll(".alias-option").forEach(opt => {
     opt.addEventListener("click", () => {
@@ -194,213 +140,146 @@ function renderAliasSuggestions(list) {
     });
   });
 }
-
-function hideAliasSuggestions() {
-  document.getElementById("alias-suggestions").classList.add("hidden");
-}
+function hideAliasSuggestions() { document.getElementById("alias-suggestions").classList.add("hidden"); }
 
 // ── FILE ATTACH ───────────────────────────────────────────────
 function onFileSelect(e) {
   Array.from(e.target.files).forEach(f => {
-    const sizeMB = f.size / (1024 * 1024);
-    if (sizeMB > 40) {
-      alert(`"${f.name}" is too large (${sizeMB.toFixed(1)} MB). Max 40MB.`);
-      return;
-    }
+    if (f.size / 1048576 > 40) { alert(`"${f.name}" too large. Max 40MB.`); return; }
     if (!attachFiles.find(x => x.name === f.name)) attachFiles.push(f);
   });
-  renderFileList();
-  e.target.value = "";
+  renderFileList(); e.target.value = "";
 }
-
 function renderFileList() {
-  const el = document.getElementById("file-list");
-  el.innerHTML = attachFiles.map((f, i) => {
-    const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
-    return `<div class="file-item">
+  document.getElementById("file-list").innerHTML = attachFiles.map((f, i) =>
+    `<div class="file-item">
       <span class="file-item-name">📎 ${f.name}</span>
-      <span class="file-item-size">${sizeMB} MB</span>
+      <span class="file-item-size">${(f.size/1048576).toFixed(2)} MB</span>
       <button class="file-remove" onclick="removeFile(${i})">✕</button>
-    </div>`;
-  }).join("");
+    </div>`).join("");
 }
-
-function removeFile(i) {
-  attachFiles.splice(i, 1);
-  renderFileList();
-}
-
+function removeFile(i) { attachFiles.splice(i, 1); renderFileList(); }
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve(reader.result.split(",")[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(file);
   });
 }
 
 // ── LOCAL HISTORY HELPERS ─────────────────────────────────────
 function getLocalHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
-  catch { return []; }
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch { return []; }
 }
-
 function saveLocalHistory(mails) {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(mails)); }
-  catch (e) { console.warn("localStorage full:", e); }
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(mails)); } catch(e) { console.warn("localStorage full:", e); }
 }
-
-// Naya mail localStorage mein add karo
 function addToLocalHistory(mailObj) {
   const list = getLocalHistory();
-  // Duplicate check (same id already stored?)
   if (!list.find(m => m.id === mailObj.id)) {
-    list.unshift(mailObj); // newest first
-    // Max 200 entries local mein rakho
+    list.unshift(mailObj);
     if (list.length > 200) list.splice(200);
     saveLocalHistory(list);
   }
 }
-
-// Local se ek mail delete karo
 function deleteFromLocalHistory(id) {
-  const list = getLocalHistory().filter(m => m.id !== id);
-  saveLocalHistory(list);
+  saveLocalHistory(getLocalHistory().filter(m => m.id !== id));
 }
-
-// KV mails ko local mails ke saath merge karo (KV = source of truth)
+// KV = source of truth, local fills gaps for offline/unsynced mails
 function mergeHistories(kvMails, localMails) {
   const map = new Map();
-  // Pehle local mails daalo
   localMails.forEach(m => map.set(m.id, m));
-  // KV mails overwrite karein (KV = final authority)
-  kvMails.forEach(m => map.set(m.id, m));
-  // Date ke hisaab se sort (newest first)
-  return Array.from(map.values())
-    .sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+  kvMails.forEach(m => map.set(m.id, { ...m, _local: false }));
+  return Array.from(map.values()).sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
 }
 
 // ── PREVIEW ───────────────────────────────────────────────────
 function showPreview() {
-  const alias   = document.getElementById("from-alias").value.trim();
-  const to      = document.getElementById("to-address").value.trim();
-  const subject = document.getElementById("subject").value.trim();
-  const body    = document.getElementById("body").value.trim();
-  const errEl   = document.getElementById("compose-error");
-
-  if (!alias || !to || !subject) {
-    showError(errEl, "From alias, To, aur Subject bharo pehle.");
-    return;
-  }
+  const alias = document.getElementById("from-alias").value.trim();
+  const to    = document.getElementById("to-address").value.trim();
+  const sub   = document.getElementById("subject").value.trim();
+  const body  = document.getElementById("body").value.trim();
+  const errEl = document.getElementById("compose-error");
+  if (!alias || !to || !sub) { showError(errEl, "From alias, To, aur Subject bharo pehle."); return; }
   hideMsg(errEl);
-
   document.getElementById("prev-from").textContent    = `${alias}@${DOMAIN}`;
   document.getElementById("prev-to").textContent      = to;
-  document.getElementById("prev-subject").textContent = subject;
+  document.getElementById("prev-subject").textContent = sub;
   document.getElementById("prev-body").textContent    = body || "(empty)";
-
-  const attEl = document.getElementById("prev-attachments");
-  attEl.textContent = attachFiles.length
-    ? `📎 ${attachFiles.length} file(s): ${attachFiles.map(f => f.name).join(", ")}`
-    : "";
-
+  document.getElementById("prev-attachments").textContent = attachFiles.length
+    ? `📎 ${attachFiles.length} file(s): ${attachFiles.map(f => f.name).join(", ")}` : "";
   document.getElementById("preview-modal").classList.remove("hidden");
 }
-
-function closePreview() {
-  document.getElementById("preview-modal").classList.add("hidden");
-}
+function closePreview() { document.getElementById("preview-modal").classList.add("hidden"); }
 
 // ── SEND ──────────────────────────────────────────────────────
 async function doSend() {
-  const alias   = document.getElementById("from-alias").value.trim();
-  const to      = document.getElementById("to-address").value.trim();
-  const subject = document.getElementById("subject").value.trim();
-  const body    = document.getElementById("body").value.trim();
-  const errEl   = document.getElementById("compose-error");
-  const sucEl   = document.getElementById("compose-success");
-  const btn     = document.getElementById("send-btn");
+  const alias = document.getElementById("from-alias").value.trim();
+  const to    = document.getElementById("to-address").value.trim();
+  const sub   = document.getElementById("subject").value.trim();
+  const body  = document.getElementById("body").value.trim();
+  const errEl = document.getElementById("compose-error");
+  const sucEl = document.getElementById("compose-success");
+  const btn   = document.getElementById("send-btn");
 
-  hideMsg(errEl);
-  hideMsg(sucEl);
-
-  if (!alias || !to || !subject) {
-    showError(errEl, "From alias, To, aur Subject zaroori hain.");
-    closePreview();
-    return;
-  }
-
+  hideMsg(errEl); hideMsg(sucEl);
+  if (!alias || !to || !sub) { showError(errEl, "From alias, To, aur Subject zaroori hain."); closePreview(); return; }
   setLoading(btn, true);
 
   try {
     const attachments = [];
     for (const file of attachFiles) {
-      const content = await fileToBase64(file);
-      attachments.push({ filename: file.name, content, type: file.type || "application/octet-stream" });
+      attachments.push({ filename: file.name, content: await fileToBase64(file), type: file.type || "application/octet-stream" });
     }
 
     const res = await fetch(`${BACKEND}/send`, {
-      method:  "POST",
-      headers: {
-        "Content-Type":  "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-      body: JSON.stringify({ from_alias: alias, to, subject, text: body, attachments }),
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ from_alias: alias, to, subject: sub, text: body, attachments }),
     });
-
-    const data = await res.json();
 
     if (res.status === 401) { doLogout(); return; }
 
-    if (!res.ok) {
-      closePreview();
-      showError(errEl, data.error || "Send failed.");
-      return;
-    }
+    const data = await res.json();
+    if (!res.ok) { closePreview(); showError(errEl, data.error || "Send failed."); return; }
 
     closePreview();
     saveAlias(alias);
 
-    // ── Mail sent! Ab localStorage mein save karo turant ──────
+    // ── Save to localStorage immediately after send ───────────
     const safeAlias = alias.replace(/[^a-zA-Z0-9._-]/g, "");
-    const historyId = `mail:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
-    const mailRecord = {
-      id:          historyId,
+    const localId   = `mail:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
+    addToLocalHistory({
+      id:          localId,
       from:        `${safeAlias} <${safeAlias}@${DOMAIN}>`,
       to:          to,
-      subject:     subject,
+      subject:     sub,
       body:        body || "(empty)",
       attachments: attachments.map(a => a.filename),
       sentAt:      new Date().toISOString(),
-      _local:      true, // mark karo ki ye local se aaya hai
-    };
-    addToLocalHistory(mailRecord);
+      _local:      true,
+    });
     // ──────────────────────────────────────────────────────────
 
     document.getElementById("from-alias").value = "";
     document.getElementById("to-address").value  = "";
     document.getElementById("subject").value      = "";
     document.getElementById("body").value         = "";
-    attachFiles = [];
-    renderFileList();
-
+    attachFiles = []; renderFileList();
     showSuc(sucEl, "✓ Mail sent! History mein save ho gayi.");
 
-  } catch {
+  } catch(err) {
     closePreview();
-    showError(errEl, "Network error — try again.");
+    showError(errEl, "Network error: " + err.message);
   } finally {
     setLoading(btn, false);
   }
 }
 
 function clearCompose() {
-  document.getElementById("from-alias").value = "";
-  document.getElementById("to-address").value  = "";
-  document.getElementById("subject").value      = "";
-  document.getElementById("body").value         = "";
-  attachFiles = [];
-  renderFileList();
+  ["from-alias","to-address","subject","body"].forEach(id => document.getElementById(id).value = "");
+  attachFiles = []; renderFileList();
   hideMsg(document.getElementById("compose-error"));
   hideMsg(document.getElementById("compose-success"));
 }
@@ -409,104 +288,89 @@ function clearCompose() {
 async function loadHistory() {
   const el = document.getElementById("history-list");
 
-  // Step 1: Pehle localStorage se instantly dikhao
+  // STEP 1 — localStorage se turant dikhao (instant, no delay)
   const localMails = getLocalHistory();
   if (localMails.length > 0) {
-    renderHistory(localMails, true); // true = showing local (temporary)
+    renderHistory(localMails);
+    // sync banner add karo
+    const banner = document.createElement("div");
+    banner.id = "kv-sync-banner";
+    banner.style.cssText = "text-align:center;font-size:11px;color:var(--text3);padding:4px 0 8px;font-family:var(--font-mono);";
+    banner.textContent = "⟳ syncing with server...";
+    el.prepend(banner);
   } else {
-    el.innerHTML = `<div class="history-empty">Loading...</div>`;
+    el.innerHTML = `<div class="history-empty">⟳ Loading...</div>`;
   }
 
-  if (!token) {
-    el.innerHTML = `<div class="history-empty">Not logged in.</div>`;
-    return;
-  }
+  if (!token) { el.innerHTML = `<div class="history-empty">Not logged in.</div>`; return; }
 
-  // Step 2: Background mein KV se fetch karo aur merge karo
+  // STEP 2 — KV se background fetch
   try {
     const res = await fetch(`${BACKEND}/history`, {
-      method:  "GET",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
     });
+
+    // Banner hata do
+    const banner = document.getElementById("kv-sync-banner");
+    if (banner) banner.remove();
 
     if (res.status === 401) { doLogout(); return; }
 
-    const text = await res.text();
     let data;
-    try {
-      data = JSON.parse(text);
-    } catch(e) {
-      // KV fetch fail — local data hi dikhate rahein
-      if (!localMails.length) {
-        el.innerHTML = `<div class="history-empty">Response parse error: ${text.slice(0,100)}</div>`;
-      }
+    try { data = await res.json(); }
+    catch(e) {
+      if (!localMails.length) el.innerHTML = `<div class="history-empty">Server parse error.</div>`;
       return;
     }
 
     if (!res.ok) {
-      if (!localMails.length) {
-        el.innerHTML = `<div class="history-empty">Error ${res.status}: ${data.error || "Failed to load."}</div>`;
-      }
+      if (!localMails.length) el.innerHTML = `<div class="history-empty">Server error ${res.status}: ${data.error || "Unknown"}</div>`;
       return;
     }
 
-    // Step 3: KV mails aur local mails merge karo
-    const kvMails     = data.mails || [];
-    const mergedMails = mergeHistories(kvMails, localMails);
+    // STEP 3 — Merge KV + local, save merged list, render
+    const kvMails = data.mails || [];
+    const merged  = mergeHistories(kvMails, localMails);
+    saveLocalHistory(merged);
+    renderHistory(merged);
 
-    // Step 4: Merged list localStorage mein update karo (sync)
-    saveLocalHistory(mergedMails);
-
-    // Step 5: Final render
-    renderHistory(mergedMails, false);
-
-  } catch (err) {
-    // Network error — local data dikhate rahein
-    if (!localMails.length) {
-      el.innerHTML = `<div class="history-empty">Network error: ${err.message}</div>`;
-    }
+  } catch(err) {
+    const banner = document.getElementById("kv-sync-banner");
+    if (banner) banner.textContent = "⚠ Offline — showing local only";
+    if (!localMails.length) el.innerHTML = `<div class="history-empty">Network error: ${err.message}</div>`;
   }
 }
 
 // ── RENDER HISTORY ────────────────────────────────────────────
-function renderHistory(mails, isLocalOnly = false) {
+function renderHistory(mails) {
   const el = document.getElementById("history-list");
-  if (!mails.length) {
+  if (!mails || !mails.length) {
     el.innerHTML = `<div class="history-empty">No sent mails yet.</div>`;
     return;
   }
-
-  // Local-only indicator
-  const banner = isLocalOnly
-    ? `<div style="font-size:11px;color:var(--text-muted);padding:4px 8px;text-align:center;">📱 Local history — syncing KV...</div>`
-    : "";
-
-  el.innerHTML = banner + mails.map(m => `
-    <div class="history-item${m._local ? ' history-item--local' : ''}" data-mail-id="${esc(m.id)}">
+  el.innerHTML = mails.map(m => `
+    <div class="history-item" data-mail-id="${esc(m.id)}">
       <div class="history-item-subject">${esc(m.subject)}</div>
       <div class="history-item-meta">
         <span>▶ ${esc(m.to)}</span>
         <span>◀ ${esc(m.from)}</span>
         <span>◷ ${formatDate(m.sentAt)}</span>
+        ${m._local ? `<span style="color:var(--accent2);font-size:0.6rem">● local</span>` : ""}
       </div>
     </div>`).join("");
 
   el.querySelectorAll(".history-item").forEach(item => {
     item.addEventListener("click", () => showDetail(item.dataset.mailId));
   });
-
   window._historyMails = mails;
 }
 
+// ── DETAIL MODAL ──────────────────────────────────────────────
 function showDetail(id) {
   const mail = (window._historyMails || []).find(m => m.id === id);
   if (!mail) return;
   currentMailId = id;
-  const el = document.getElementById("detail-content");
-  el.innerHTML = `
+  document.getElementById("detail-content").innerHTML = `
     <div class="detail-row"><span class="detail-label">FROM</span><span>${esc(mail.from)}</span></div>
     <div class="detail-row"><span class="detail-label">TO</span><span>${esc(mail.to)}</span></div>
     <div class="detail-row"><span class="detail-label">SUBJECT</span><span>${esc(mail.subject)}</span></div>
@@ -517,31 +381,18 @@ function showDetail(id) {
     <div class="detail-body">${esc(mail.body)}</div>`;
   document.getElementById("detail-modal").classList.remove("hidden");
 }
-
-function closeDetail() {
-  document.getElementById("detail-modal").classList.add("hidden");
-  currentMailId = null;
-}
+function closeDetail() { document.getElementById("detail-modal").classList.add("hidden"); currentMailId = null; }
 
 async function deleteMail() {
   if (!currentMailId) return;
   if (!confirm("Delete this mail from history?")) return;
-
-  // Pehle localStorage se delete karo
   deleteFromLocalHistory(currentMailId);
-
-  // Phir KV se bhi delete karo (backend)
   try {
     const res = await fetch(`${BACKEND}/history/${encodeURIComponent(currentMailId)}`, {
-      method:  "DELETE",
-      headers: { "Authorization": `Bearer ${token}` },
+      method: "DELETE", headers: { "Authorization": `Bearer ${token}` },
     });
     if (res.status === 401) { doLogout(); return; }
-  } catch {
-    // KV delete fail ho toh bhi local se hat gayi — ok hai
-    console.warn("KV delete failed, but removed from local.");
-  }
-
+  } catch { console.warn("KV delete failed — removed from local only."); }
   closeDetail();
   loadHistory();
 }
@@ -549,31 +400,22 @@ async function deleteMail() {
 // ── HELPERS ───────────────────────────────────────────────────
 function esc(str) {
   return String(str || "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
-
 function formatDate(iso) {
   try {
     return new Date(iso).toLocaleString("en-IN", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit",
+      day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit"
     });
   } catch { return iso; }
 }
-
 function setLoading(btn, loading) {
-  const text   = btn.querySelector(".btn-text");
-  const loader = btn.querySelector(".btn-loader");
-  if (!text || !loader) return;
-  btn.disabled = loading;
-  text.classList.toggle("hidden", loading);
-  loader.classList.toggle("hidden", !loading);
+  const t = btn.querySelector(".btn-text");
+  const l = btn.querySelector(".btn-loader");
+  if (!t || !l) return;
+  btn.disabled = loading; t.classList.toggle("hidden", loading); l.classList.toggle("hidden", !loading);
 }
-
 function showError(el, msg) { el.textContent = msg; el.classList.remove("hidden"); }
-function showSuc(el, msg) {
-  el.textContent = msg; el.classList.remove("hidden");
-  setTimeout(() => hideMsg(el), 5000);
-}
-function hideMsg(el) { if (el) el.classList.add("hidden"); }
+function showSuc(el, msg)   { el.textContent = msg; el.classList.remove("hidden"); setTimeout(() => hideMsg(el), 5000); }
+function hideMsg(el)        { if (el) el.classList.add("hidden"); }
