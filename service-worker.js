@@ -1,4 +1,4 @@
-const CACHE_NAME = "ghostmail-v3";
+const CACHE_NAME = "ghostmail-v4";
 const ASSETS = [
   "/",
   "/index.html",
