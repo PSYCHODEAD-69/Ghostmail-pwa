@@ -682,6 +682,13 @@ input::placeholder, textarea::placeholder { color: var(--text3); font-weight: 40
   font-size: 0.9rem; color: var(--text2);
   white-space: pre-wrap; word-break: break-word; line-height: 1.7;
 }
+.detail-body-html {
+  white-space: normal;
+}
+.detail-body a {
+  color: var(--accent); text-decoration: underline;
+  word-break: break-all;
+}
 
 /* ── ATTACHMENT LIST IN DETAIL ───────────────────────────────── */
 .detail-attachments {
@@ -698,7 +705,8 @@ input::placeholder, textarea::placeholder { color: var(--text3); font-weight: 40
 }
 .att-name {
   font-family: var(--font-mono); font-size: 0.72rem; color: var(--text2);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+  word-break: break-all; white-space: normal; flex: 1;
+  line-height: 1.4;
 }
 .att-btns { display: flex; gap: 0.35rem; flex-shrink: 0; }
 .att-view-btn, .att-dl-btn {
