@@ -56,7 +56,6 @@
         <span class="header-title">GHOSTMAIL</span>
       </div>
       <div class="header-actions">
-        <!-- Theme Toggle Switch -->
         <label class="theme-toggle" title="Toggle theme">
           <input type="checkbox" id="theme-checkbox" />
           <span class="theme-track">
@@ -66,7 +65,6 @@
             </span>
           </span>
         </label>
-        <!-- Logout Button -->
         <button id="logout-btn" class="btn-logout" title="Logout">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -140,17 +138,40 @@
 
     <!-- ── HISTORY TAB ─────────────────────────────── -->
     <div id="tab-history" class="tab-content">
-      <div class="history-toolbar">
+
+      <!-- Sub-tab nav: Inbox / Sent -->
+      <div class="subtab-nav">
+        <button class="subtab-btn active" data-subtab="inbox">
+          <span class="subtab-indicator incoming"></span> INBOX
+        </button>
+        <button class="subtab-btn" data-subtab="sent">
+          <span class="subtab-indicator outgoing"></span> SENT
+        </button>
+        <div class="subtab-spacer"></div>
         <button id="refresh-history-btn" class="btn-ghost-sm">↻ REFRESH</button>
-        <div id="selection-toolbar" class="hidden" style="display:flex;gap:0.5rem;align-items:center;">
-          <span id="selection-count" style="font-family:var(--font-mono);font-size:0.72rem;color:var(--text2);">Select mails</span>
-          <button id="delete-selected-btn" class="btn-danger-sm" disabled>🗑 DELETE</button>
-          <button id="cancel-selection-btn" class="btn-ghost-sm">✕ CANCEL</button>
+      </div>
+
+      <!-- Selection toolbar -->
+      <div id="selection-toolbar" class="selection-toolbar hidden">
+        <span id="selection-count" class="selection-count">Select mails</span>
+        <button id="delete-selected-btn" class="btn-danger-sm" disabled>DELETE</button>
+        <button id="cancel-selection-btn" class="btn-ghost-sm">✕ CANCEL</button>
+      </div>
+
+      <!-- Inbox list -->
+      <div id="subtab-inbox" class="subtab-content active">
+        <div id="inbox-list" class="history-list">
+          <div class="history-empty">No inbox mails yet.</div>
         </div>
       </div>
-      <div id="history-list" class="history-list">
-        <div class="history-empty">No sent mails yet.</div>
+
+      <!-- Sent list -->
+      <div id="subtab-sent" class="subtab-content">
+        <div id="history-list" class="history-list">
+          <div class="history-empty">No sent mails yet.</div>
+        </div>
       </div>
+
     </div>
 
   </div>
@@ -181,13 +202,28 @@
   <div id="detail-modal" class="modal hidden">
     <div class="modal-box">
       <div class="modal-header">
-        <span>SENT MAIL</span>
+        <span id="detail-modal-title">MAIL</span>
         <button id="close-detail" class="modal-close">✕</button>
       </div>
       <div class="modal-body" id="detail-content"></div>
       <div class="modal-footer">
         <button id="delete-mail-btn" class="btn-danger">DELETE</button>
         <button id="detail-close-btn" class="btn-ghost">CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ATTACHMENT VIEWER MODAL ────────────────────── -->
+  <div id="viewer-modal" class="modal hidden">
+    <div class="modal-box modal-box-viewer">
+      <div class="modal-header">
+        <span id="viewer-filename">FILE</span>
+        <button id="close-viewer" class="modal-close">✕</button>
+      </div>
+      <div class="modal-body viewer-body" id="viewer-content"></div>
+      <div class="modal-footer">
+        <button id="viewer-download-btn" class="btn-primary">DOWNLOAD</button>
+        <button id="viewer-close-btn" class="btn-ghost">CLOSE</button>
       </div>
     </div>
   </div>
