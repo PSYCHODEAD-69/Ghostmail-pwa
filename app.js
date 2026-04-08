@@ -143,14 +143,9 @@ function doLogout() {
 // ── TABS ──────────────────────────────────────────────────────
 function switchTab(tabName) {
   document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-  document.querySelectorAll(".tab-content").forEach(c => {
-    c.classList.remove("active");
-    c.classList.add("hidden");
-  });
+  document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
   document.querySelector(`[data-tab="${tabName}"]`).classList.add("active");
-  const tabEl = document.getElementById(`tab-${tabName}`);
-  tabEl.classList.remove("hidden");
-  tabEl.classList.add("active");
+  document.getElementById(`tab-${tabName}`).classList.add("active");
   if (tabName === "history") loadHistory();
 }
 
