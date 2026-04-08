@@ -7,6 +7,9 @@ let token         = localStorage.getItem("gm_token") || null;
 let attachFiles   = [];
 let currentMailId = null;
 
+// ── HISTORY STORAGE KEY ───────────────────────────────────────
+const HISTORY_KEY = "gm_history";
+
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   loadTheme();
@@ -236,6 +239,47 @@ function fileToBase64(file) {
   });
 }
 
+// ── LOCAL HISTORY HELPERS ─────────────────────────────────────
+function getLocalHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
+  catch { return []; }
+}
+
+function saveLocalHistory(mails) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(mails)); }
+  catch (e) { console.warn("localStorage full:", e); }
+}
+
+// Naya mail localStorage mein add karo
+function addToLocalHistory(mailObj) {
+  const list = getLocalHistory();
+  // Duplicate check (same id already stored?)
+  if (!list.find(m => m.id === mailObj.id)) {
+    list.unshift(mailObj); // newest first
+    // Max 200 entries local mein rakho
+    if (list.length > 200) list.splice(200);
+    saveLocalHistory(list);
+  }
+}
+
+// Local se ek mail delete karo
+function deleteFromLocalHistory(id) {
+  const list = getLocalHistory().filter(m => m.id !== id);
+  saveLocalHistory(list);
+}
+
+// KV mails ko local mails ke saath merge karo (KV = source of truth)
+function mergeHistories(kvMails, localMails) {
+  const map = new Map();
+  // Pehle local mails daalo
+  localMails.forEach(m => map.set(m.id, m));
+  // KV mails overwrite karein (KV = final authority)
+  kvMails.forEach(m => map.set(m.id, m));
+  // Date ke hisaab se sort (newest first)
+  return Array.from(map.values())
+    .sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt));
+}
+
 // ── PREVIEW ───────────────────────────────────────────────────
 function showPreview() {
   const alias   = document.getElementById("from-alias").value.trim();
@@ -317,6 +361,22 @@ async function doSend() {
     closePreview();
     saveAlias(alias);
 
+    // ── Mail sent! Ab localStorage mein save karo turant ──────
+    const safeAlias = alias.replace(/[^a-zA-Z0-9._-]/g, "");
+    const historyId = `mail:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`;
+    const mailRecord = {
+      id:          historyId,
+      from:        `${safeAlias} <${safeAlias}@${DOMAIN}>`,
+      to:          to,
+      subject:     subject,
+      body:        body || "(empty)",
+      attachments: attachments.map(a => a.filename),
+      sentAt:      new Date().toISOString(),
+      _local:      true, // mark karo ki ye local se aaya hai
+    };
+    addToLocalHistory(mailRecord);
+    // ──────────────────────────────────────────────────────────
+
     document.getElementById("from-alias").value = "";
     document.getElementById("to-address").value  = "";
     document.getElementById("subject").value      = "";
@@ -324,7 +384,7 @@ async function doSend() {
     attachFiles = [];
     renderFileList();
 
-    showSuc(sucEl, "✓ Mail sent successfully!");
+    showSuc(sucEl, "✓ Mail sent! History mein save ho gayi.");
 
   } catch {
     closePreview();
@@ -348,13 +408,21 @@ function clearCompose() {
 // ── HISTORY ───────────────────────────────────────────────────
 async function loadHistory() {
   const el = document.getElementById("history-list");
-  el.innerHTML = `<div class="history-empty">Loading...</div>`;
+
+  // Step 1: Pehle localStorage se instantly dikhao
+  const localMails = getLocalHistory();
+  if (localMails.length > 0) {
+    renderHistory(localMails, true); // true = showing local (temporary)
+  } else {
+    el.innerHTML = `<div class="history-empty">Loading...</div>`;
+  }
 
   if (!token) {
     el.innerHTML = `<div class="history-empty">Not logged in.</div>`;
     return;
   }
 
+  // Step 2: Background mein KV se fetch karo aur merge karo
   try {
     const res = await fetch(`${BACKEND}/history`, {
       method:  "GET",
@@ -371,30 +439,53 @@ async function loadHistory() {
     try {
       data = JSON.parse(text);
     } catch(e) {
-      el.innerHTML = `<div class="history-empty">Response parse error: ${text.slice(0,100)}</div>`;
+      // KV fetch fail — local data hi dikhate rahein
+      if (!localMails.length) {
+        el.innerHTML = `<div class="history-empty">Response parse error: ${text.slice(0,100)}</div>`;
+      }
       return;
     }
 
     if (!res.ok) {
-      el.innerHTML = `<div class="history-empty">Error ${res.status}: ${data.error || "Failed to load."}</div>`;
+      if (!localMails.length) {
+        el.innerHTML = `<div class="history-empty">Error ${res.status}: ${data.error || "Failed to load."}</div>`;
+      }
       return;
     }
 
-    renderHistory(data.mails || []);
+    // Step 3: KV mails aur local mails merge karo
+    const kvMails     = data.mails || [];
+    const mergedMails = mergeHistories(kvMails, localMails);
+
+    // Step 4: Merged list localStorage mein update karo (sync)
+    saveLocalHistory(mergedMails);
+
+    // Step 5: Final render
+    renderHistory(mergedMails, false);
+
   } catch (err) {
-    el.innerHTML = `<div class="history-empty">Network error: ${err.message}</div>`;
+    // Network error — local data dikhate rahein
+    if (!localMails.length) {
+      el.innerHTML = `<div class="history-empty">Network error: ${err.message}</div>`;
+    }
   }
 }
 
-// ── FIX 1: Use data-id attribute instead of inline onclick with raw id ──
-function renderHistory(mails) {
+// ── RENDER HISTORY ────────────────────────────────────────────
+function renderHistory(mails, isLocalOnly = false) {
   const el = document.getElementById("history-list");
   if (!mails.length) {
     el.innerHTML = `<div class="history-empty">No sent mails yet.</div>`;
     return;
   }
-  el.innerHTML = mails.map(m => `
-    <div class="history-item" data-mail-id="${esc(m.id)}">
+
+  // Local-only indicator
+  const banner = isLocalOnly
+    ? `<div style="font-size:11px;color:var(--text-muted);padding:4px 8px;text-align:center;">📱 Local history — syncing KV...</div>`
+    : "";
+
+  el.innerHTML = banner + mails.map(m => `
+    <div class="history-item${m._local ? ' history-item--local' : ''}" data-mail-id="${esc(m.id)}">
       <div class="history-item-subject">${esc(m.subject)}</div>
       <div class="history-item-meta">
         <span>▶ ${esc(m.to)}</span>
@@ -403,7 +494,6 @@ function renderHistory(mails) {
       </div>
     </div>`).join("");
 
-  // Attach click listeners safely (no inline onclick with raw IDs)
   el.querySelectorAll(".history-item").forEach(item => {
     item.addEventListener("click", () => showDetail(item.dataset.mailId));
   });
@@ -436,17 +526,24 @@ function closeDetail() {
 async function deleteMail() {
   if (!currentMailId) return;
   if (!confirm("Delete this mail from history?")) return;
+
+  // Pehle localStorage se delete karo
+  deleteFromLocalHistory(currentMailId);
+
+  // Phir KV se bhi delete karo (backend)
   try {
     const res = await fetch(`${BACKEND}/history/${encodeURIComponent(currentMailId)}`, {
       method:  "DELETE",
       headers: { "Authorization": `Bearer ${token}` },
     });
     if (res.status === 401) { doLogout(); return; }
-    closeDetail();
-    loadHistory();
   } catch {
-    alert("Delete failed.");
+    // KV delete fail ho toh bhi local se hat gayi — ok hai
+    console.warn("KV delete failed, but removed from local.");
   }
+
+  closeDetail();
+  loadHistory();
 }
 
 // ── HELPERS ───────────────────────────────────────────────────
