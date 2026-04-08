@@ -593,6 +593,24 @@ input::placeholder, textarea::placeholder { color: var(--text3); font-weight: 40
   white-space: pre-wrap; word-break: break-word; line-height: 1.7;
 }
 
+.history-item.selected {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+.mail-checkbox {
+  font-size: 1.1rem; margin-right: 0.5rem;
+  color: var(--accent); user-select: none;
+}
+.btn-danger-sm {
+  background: var(--danger-dim); border: 1px solid var(--danger);
+  color: var(--danger); border-radius: var(--radius);
+  font-family: var(--font-mono); font-size: 0.68rem;
+  padding: 0.3rem 0.7rem; cursor: pointer;
+  letter-spacing: 0.08em; transition: all var(--transition);
+}
+.btn-danger-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-danger-sm:not(:disabled):hover { background: var(--danger); color: #fff; }
+
 /* ── SCROLLBAR ───────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
