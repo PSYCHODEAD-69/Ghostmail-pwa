@@ -535,7 +535,11 @@ function updateSelectionToolbar() {
 
 async function deleteSelectedMails() {
   if (!selectedMails.size) return;
-  if (!confirm(`${selectedMails.size} mail(s) delete karna chahte ho?`)) return;
+  const count = selectedMails.size;
+  await new Promise((resolve, reject) => {
+    showConfirmDialog(`Delete ${count} mail${count > 1 ? "s" : ""}?`, "This action cannot be undone.", resolve, reject);
+  }).catch(() => { return; });
+  if (!selectedMails.size) return; // user cancelled
 
   const ids    = Array.from(selectedMails);
   const type   = activeSubtab;
@@ -583,9 +587,10 @@ function showDetail(id, type) {
           const viewBtn      = canView
             ? `<button class="att-view-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}">VIEW</button>`
             : "";
+          const truncName = truncateFilename(a.filename, 22);
           return `<div class="att-item">
             <div class="att-name-row">
-              <span class="att-name">${esc(a.filename)}</span>
+              <span class="att-name" title="${esc(a.filename)}">${esc(truncName)}</span>
               <div class="att-btns">
                 ${viewBtn}
                 <button class="att-dl-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}">DL</button>
@@ -614,9 +619,10 @@ function showDetail(id, type) {
       .replace(/javascript\s*:/gi, "");
     bodyHtml = `<div class="detail-body detail-body-html">${sanitized}</div>`;
   } else {
-    // Plain text: auto-linkify URLs
-    const linked = esc(rawBody).replace(
-      /(https?:\/\/[^\s<>"]+)/g,
+    // Plain text: auto-linkify URLs (escape first, then wrap URLs)
+    const escaped = esc(rawBody);
+    const linked  = escaped.replace(
+      /(https?:\/\/[^\s<>"&]+)/g,
       '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
     );
     bodyHtml = `<div class="detail-body">${linked}</div>`;
@@ -652,21 +658,21 @@ function closeDetail() {
 
 async function deleteMail() {
   if (!currentMailId) return;
-  if (!confirm("Delete this mail?")) return;
-
-  const route = currentMailType === "inbox" ? "inbox" : "history";
-  try {
-    const res = await fetch(`${BACKEND}/${route}/${encodeURIComponent(currentMailId)}`, {
-      method:  "DELETE",
-      headers: { "Authorization": `Bearer ${token}` },
-    });
-    if (res.status === 401) { doLogout(); return; }
-    closeDetail();
-    if (currentMailType === "inbox") loadInbox();
-    else loadHistory();
-  } catch {
-    alert("Delete failed.");
-  }
+  showConfirmDialog("Delete this mail?", "This action cannot be undone.", async () => {
+    const route = currentMailType === "inbox" ? "inbox" : "history";
+    try {
+      const res = await fetch(`${BACKEND}/${route}/${encodeURIComponent(currentMailId)}`, {
+        method:  "DELETE",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (res.status === 401) { doLogout(); return; }
+      closeDetail();
+      if (currentMailType === "inbox") loadInbox();
+      else loadHistory();
+    } catch {
+      showToast("Delete failed — try again.", "error");
+    }
+  });
 }
 
 // ── ATTACHMENT OPEN ────────────────────────────────────────────
@@ -700,11 +706,18 @@ async function openAttachment(mailId, mailType, index, action) {
       { method: "GET", headers: { "Authorization": `Bearer ${token}` } }
     );
     if (res.status === 401) { doLogout(); return; }
-    if (!res.ok) { alert("Attachment load failed."); return; }
-    const data = await res.json();
-    att = data.attachment;
+    const respData = await res.json();
+    if (!res.ok) {
+      if (res.status === 410 || respData.error === "legacy") {
+        showAttachmentError("This attachment is from before the R2 migration and cannot be retrieved. Newer mails will work fine.");
+      } else {
+        showAttachmentError(respData.error || "Attachment load failed.");
+      }
+      return;
+    }
+    att = respData.attachment;
   } catch {
-    alert("Network error loading attachment.");
+    showToast("Network error loading attachment.", "error");
     return;
   } finally {
     btns.forEach(b => {
@@ -713,7 +726,12 @@ async function openAttachment(mailId, mailType, index, action) {
     });
   }
 
-  if (!att || !att.data) { alert("Attachment data not available."); return; }
+  if (!att) { showToast("Attachment not found.", "error"); return; }
+  if (!att.data) {
+    // Check if this was a legacy mail
+    showAttachmentError("This attachment is from before the R2 migration and cannot be retrieved. Newer mails will work fine.");
+    return;
+  }
 
   const ext      = getExt(att.filename);
   const mimeType = att.mimeType || guessMime(ext);
@@ -829,36 +847,30 @@ function cleanFrom(from) {
   if (!from) return "";
   const s = from.trim();
 
-  // Format: "Display Name <email@domain>" — prefer display name
-  const nameEmail = s.match(/^(.+?)\s*<([^>]+)>$/);
-  if (nameEmail) {
-    const name  = nameEmail[1].replace(/^["']|["']$/g, "").trim();
-    const email = nameEmail[2].trim();
-    // If name looks like a UUID/hash (long hex string), skip it
-    if (name && !/^[0-9a-f-]{20,}$/i.test(name)) {
-      return name.length > 28 ? name.slice(0, 26) + "…" : name;
+  // Extract email from angle brackets if present
+  const emailMatch = s.match(/<([^>]+)>/);
+  const email      = emailMatch ? emailMatch[1].trim() : (s.includes("@") ? s : null);
+
+  // Extract display name (everything before <...>)
+  if (emailMatch) {
+    const rawName = s.slice(0, s.lastIndexOf("<")).replace(/^["'\s]+|["'\s]+$/g, "").trim();
+    // Use display name only if it's not a hash/UUID/empty
+    if (rawName && rawName.length >= 2 && !/^[0-9a-f\-]{16,}$/i.test(rawName)) {
+      return rawName.length > 28 ? rawName.slice(0, 26) + "…" : rawName;
     }
-    // Fallback: use local part of email (before @)
-    const local = email.split("@")[0] || email;
-    // If local part is a long hash/UUID, show domain instead
-    if (/^[0-9a-f-]{20,}$/i.test(local) || local.length > 30) {
-      const domain = email.split("@")[1] || email;
-      return domain.length > 28 ? domain.slice(0, 26) + "…" : domain;
+  }
+
+  // No valid display name — use email local part
+  if (email) {
+    const local = email.split("@")[0] || "";
+    const domain = email.split("@")[1] || "";
+    // Long hash local part? show sender domain instead
+    if (/^[0-9a-f\-]{16,}$/i.test(local) || local.length > 30) {
+      return domain.length > 28 ? domain.slice(0, 26) + "…" : (domain || email.slice(0, 26) + "…");
     }
     return local.length > 28 ? local.slice(0, 26) + "…" : local;
   }
 
-  // Plain email address (no display name)
-  if (s.includes("@")) {
-    const local = s.split("@")[0];
-    if (/^[0-9a-f-]{20,}$/i.test(local) || local.length > 30) {
-      const domain = s.split("@")[1] || s;
-      return domain.length > 28 ? domain.slice(0, 26) + "…" : domain;
-    }
-    return local.length > 28 ? local.slice(0, 26) + "…" : local;
-  }
-
-  // Fallback plain string
   return s.length > 28 ? s.slice(0, 26) + "…" : s;
 }
 
@@ -892,3 +904,63 @@ function showSuc(el, msg) {
   setTimeout(() => hideMsg(el), 5000);
 }
 function hideMsg(el) { if (el) el.classList.add("hidden"); }
+
+// ── FILENAME TRUNCATION ───────────────────────────────────────
+// Middle truncate: "Screenshot_2026-04-08...45.jpg" — keeps extension visible
+function truncateFilename(name, maxLen) {
+  if (!name || name.length <= maxLen) return name;
+  const dot = name.lastIndexOf(".");
+  const ext  = dot > 0 ? name.slice(dot) : "";
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const keep = maxLen - ext.length - 3; // 3 for "..."
+  if (keep < 4) return name.slice(0, maxLen - 1) + "…";
+  return base.slice(0, Math.ceil(keep / 2)) + "…" + base.slice(-Math.floor(keep / 2)) + ext;
+}
+
+// ── CUSTOM CONFIRM DIALOG ─────────────────────────────────────
+function showConfirmDialog(title, subtitle, onConfirm, onCancel) {
+  // Remove existing
+  const existing = document.getElementById("custom-confirm-overlay");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "custom-confirm-overlay";
+  overlay.className = "custom-confirm-overlay";
+  overlay.innerHTML = `
+    <div class="custom-confirm-box">
+      <div class="custom-confirm-icon">⚠</div>
+      <div class="custom-confirm-title">${esc(title)}</div>
+      ${subtitle ? `<div class="custom-confirm-sub">${esc(subtitle)}</div>` : ""}
+      <div class="custom-confirm-btns">
+        <button class="btn-ghost custom-confirm-cancel">CANCEL</button>
+        <button class="btn-danger custom-confirm-ok">DELETE</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("visible"));
+
+  const close = () => { overlay.classList.remove("visible"); setTimeout(() => overlay.remove(), 200); };
+
+  overlay.querySelector(".custom-confirm-cancel").addEventListener("click", () => { close(); if (onCancel) onCancel(); });
+  overlay.querySelector(".custom-confirm-ok").addEventListener("click", () => { close(); if (onConfirm) onConfirm(); });
+  overlay.addEventListener("click", e => { if (e.target === overlay) { close(); if (onCancel) onCancel(); } });
+}
+
+// ── ATTACHMENT ERROR TOAST ────────────────────────────────────
+function showAttachmentError(msg) {
+  showToast(msg, "error");
+}
+
+function showToast(msg, type = "info") {
+  const existing = document.getElementById("gm-toast");
+  if (existing) existing.remove();
+
+  const t = document.createElement("div");
+  t.id = "gm-toast";
+  t.className = `gm-toast gm-toast-${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add("visible"));
+  setTimeout(() => { t.classList.remove("visible"); setTimeout(() => t.remove(), 400); }, 4000);
+}
