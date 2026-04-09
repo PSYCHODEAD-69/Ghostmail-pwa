@@ -445,8 +445,8 @@ function renderMailList(el, mails, type) {
     const isSelected = selectedMails.has(m.id);
     const dateField  = m.receivedAt || m.sentAt;
     const metaLine   = type === "inbox"
-      ? `<span class="meta-from">${esc(m.from || "")}</span><span>▶ ${esc(m.to || "")}</span>`
-      : `<span>▶ ${esc(Array.isArray(m.to) ? m.to.join(", ") : (m.to || ""))}</span><span class="meta-from">◀ ${esc(cleanFrom(m.from))}</span>`;
+      ? `<span class="meta-from">${esc(cleanFrom(m.from, "inbox"))}</span><span>▶ ${esc(m.to || "")}</span>`
+      : `<span>▶ ${esc(Array.isArray(m.to) ? m.to.join(", ") : (m.to || ""))}</span><span class="meta-from">◀ ${esc(cleanFrom(m.from, "sent"))}</span>`;
 
     const hasAttach = m.attachments && m.attachments.length > 0;
 
@@ -536,26 +536,28 @@ function updateSelectionToolbar() {
 async function deleteSelectedMails() {
   if (!selectedMails.size) return;
   const count = selectedMails.size;
-  await new Promise((resolve, reject) => {
-    showConfirmDialog(`Delete ${count} mail${count > 1 ? "s" : ""}?`, "This action cannot be undone.", resolve, reject);
-  }).catch(() => { return; });
-  if (!selectedMails.size) return; // user cancelled
 
-  const ids    = Array.from(selectedMails);
-  const type   = activeSubtab;
-  const route  = type === "inbox" ? "inbox" : "history";
-
-  for (const id of ids) {
-    try {
-      await fetch(`${BACKEND}/${route}/${encodeURIComponent(id)}`, {
-        method:  "DELETE",
-        headers: { "Authorization": `Bearer ${token}` },
-      });
-    } catch {}
-  }
-  exitSelectionMode();
-  if (type === "inbox") loadInbox();
-  else loadHistory();
+  showConfirmDialog(
+    `Delete ${count} mail${count > 1 ? "s" : ""}?`,
+    "This action cannot be undone.",
+    async () => {
+      const ids   = Array.from(selectedMails);
+      const type  = activeSubtab;
+      const route = type === "inbox" ? "inbox" : "history";
+      for (const id of ids) {
+        try {
+          await fetch(`${BACKEND}/${route}/${encodeURIComponent(id)}`, {
+            method:  "DELETE",
+            headers: { "Authorization": `Bearer ${token}` },
+          });
+        } catch {}
+      }
+      exitSelectionMode();
+      if (type === "inbox") loadInbox();
+      else loadHistory();
+    }
+    // no onCancel needed — just close
+  );
 }
 
 // ── MAIL DETAIL ───────────────────────────────────────────────
@@ -581,18 +583,15 @@ function showDetail(id, type) {
       <span class="detail-label">FILES</span>
       <div class="detail-attachments">
         ${mail.attachments.map((a, i) => {
-          const ext          = getExt(a.filename);
-          const sizeLabel    = formatSize(a.size);
-          const canView      = VIEWABLE_EXTS.has(ext) && !DOWNLOAD_ONLY_EXTS.has(ext);
-          const viewBtn      = canView
-            ? `<button class="att-view-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}">VIEW</button>`
-            : "";
-          const truncName = truncateFilename(a.filename, 22);
+          const ext       = getExt(a.filename || "");
+          const sizeLabel = formatSize(a.size);
+          const canView   = VIEWABLE_EXTS.has(ext) && !DOWNLOAD_ONLY_EXTS.has(ext);
+          const truncName = truncateFilename(a.filename || "unknown", 18);
           return `<div class="att-item">
             <div class="att-name-row">
               <span class="att-name" title="${esc(a.filename)}">${esc(truncName)}</span>
               <div class="att-btns">
-                ${viewBtn}
+                ${canView ? `<button class="att-view-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}">VIEW</button>` : ""}
                 <button class="att-dl-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}">DL</button>
               </div>
             </div>
@@ -608,18 +607,24 @@ function showDetail(id, type) {
   // Render body: if it contains HTML tags, render as HTML in sandboxed iframe-like div
   // Otherwise render as plain text with links auto-detected
   const rawBody = mail.body || "(No body)";
-  const hasHtml = /<\s*(a|b|i|u|p|br|div|span|img|h[1-6]|ul|ol|li|table|td|tr|strong|em)\b/i.test(rawBody);
+
+  // Detect HTML: either real tags or raw href/anchor patterns
+  const hasHtml = /<\s*(a|b|i|u|p|br|div|span|img|h[1-6]|ul|ol|li|table|td|tr|strong|em)\b/i.test(rawBody)
+    || /href\s*=/i.test(rawBody);
+
   let bodyHtml;
   if (hasHtml) {
-    // Sanitize: allow safe tags only, strip scripts/style/onclick etc.
+    // Sanitize: strip dangerous tags/attrs, keep safe ones
     const sanitized = rawBody
       .replace(/<script[\s\S]*?<\/script>/gi, "")
       .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/\son\w+\s*=\s*["'][^"']*["']/gi, "")  // remove event attrs
-      .replace(/javascript\s*:/gi, "");
+      .replace(/\s*on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "")
+      .replace(/javascript\s*:/gi, "")
+      // Make all <a> tags open in new tab safely
+      .replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
     bodyHtml = `<div class="detail-body detail-body-html">${sanitized}</div>`;
   } else {
-    // Plain text: auto-linkify URLs (escape first, then wrap URLs)
+    // Plain text: escape then auto-linkify URLs
     const escaped = esc(rawBody);
     const linked  = escaped.replace(
       /(https?:\/\/[^\s<>"&]+)/g,
@@ -629,7 +634,7 @@ function showDetail(id, type) {
   }
 
   el.innerHTML = `
-    <div class="detail-row"><span class="detail-label">FROM</span><span>${esc(cleanFrom(mail.from))}</span></div>
+    <div class="detail-row"><span class="detail-label">FROM</span><span>${esc(cleanFrom(mail.from, type))}</span></div>
     <div class="detail-row"><span class="detail-label">TO</span><span>${esc(toStr)}</span></div>
     <div class="detail-row"><span class="detail-label">SUBJECT</span><span>${esc(mail.subject || "(No Subject)")}</span></div>
     <div class="detail-row"><span class="detail-label">DATE</span><span>${formatDate(dateField)}</span></div>
@@ -843,35 +848,49 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function cleanFrom(from) {
+function cleanFrom(from, mailType) {
   if (!from) return "";
   const s = from.trim();
 
-  // Extract email from angle brackets if present
-  const emailMatch = s.match(/<([^>]+)>/);
-  const email      = emailMatch ? emailMatch[1].trim() : (s.includes("@") ? s : null);
+  // Extract email from angle brackets: "Name <email@domain>"
+  const bracketMatch = s.match(/<([^>]+)>/);
+  const email = bracketMatch
+    ? bracketMatch[1].trim()
+    : (s.includes("@") ? s.trim() : null);
 
-  // Extract display name (everything before <...>)
-  if (emailMatch) {
-    const rawName = s.slice(0, s.lastIndexOf("<")).replace(/^["'\s]+|["'\s]+$/g, "").trim();
-    // Use display name only if it's not a hash/UUID/empty
-    if (rawName && rawName.length >= 2 && !/^[0-9a-f\-]{16,}$/i.test(rawName)) {
-      return rawName.length > 28 ? rawName.slice(0, 26) + "…" : rawName;
-    }
+  // Extract display name before the bracket
+  let displayName = "";
+  if (bracketMatch) {
+    displayName = s.slice(0, s.lastIndexOf("<"))
+      .replace(/^["'\s]+|["'\s]+$/g, "").trim();
   }
 
-  // No valid display name — use email local part
+  // ── SENT MAIL: show full alias@domain ──
+  if (mailType === "sent") {
+    if (email) return email.length > 32 ? email.slice(0,30) + "\u2026" : email;
+    return s.length > 32 ? s.slice(0, 30) + "\u2026" : s;
+  }
+
+  // ── RECEIVED MAIL ──
+  // Use display name if it looks real (not UUID/hash)
+  if (displayName && displayName.length >= 2 && !/^[0-9a-f\-]{12,}$/i.test(displayName)) {
+    return displayName.length > 28 ? displayName.slice(0, 26) + "\u2026" : displayName;
+  }
+
+  // No good display name — use email
   if (email) {
-    const local = email.split("@")[0] || "";
+    const local  = email.split("@")[0] || "";
     const domain = email.split("@")[1] || "";
-    // Long hash local part? show sender domain instead
-    if (/^[0-9a-f\-]{16,}$/i.test(local) || local.length > 30) {
-      return domain.length > 28 ? domain.slice(0, 26) + "…" : (domain || email.slice(0, 26) + "…");
+    // Hash/UUID local → show domain
+    if (/^[0-9a-f\-]{12,}$/i.test(local) || local.length > 28) {
+      return domain.length > 28 ? domain.slice(0, 26) + "\u2026" : domain;
     }
-    return local.length > 28 ? local.slice(0, 26) + "…" : local;
+    // Normal: show local@domain, truncate if long
+    const full = email;
+    return full.length > 30 ? local.slice(0, 12) + "\u2026@" + domain : full;
   }
 
-  return s.length > 28 ? s.slice(0, 26) + "…" : s;
+  return s.length > 28 ? s.slice(0, 26) + "\u2026" : s;
 }
 
 function esc(str) {
