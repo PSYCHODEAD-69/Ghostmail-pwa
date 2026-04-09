@@ -110,7 +110,11 @@ function bindEvents() {
   document.getElementById("viewer-close-btn").addEventListener("click", closeViewer);
   document.getElementById("viewer-download-btn").addEventListener("click", () => {
     const btn = document.getElementById("viewer-download-btn");
-    if (btn.dataset.blobUrl && btn.dataset.filename) {
+    if (!btn.dataset.blobUrl || !btn.dataset.filename) return;
+    if (btn.dataset.isBlob === "0") {
+      // R2 direct URL — fetch and trigger save
+      triggerDownloadFromUrl(btn.dataset.blobUrl, btn.dataset.filename);
+    } else {
       triggerDownload(btn.dataset.blobUrl, btn.dataset.filename);
     }
   });
@@ -737,14 +741,28 @@ async function openAttachment(mailId, mailType, index, action) {
   }
 
   if (!att) { showToast("Attachment not found.", "error"); return; }
-  if (!att.data) {
-    showAttachmentError("This attachment is from before the R2 migration and cannot be retrieved. Newer mails will work fine.");
-    return;
-  }
 
   const ext      = getExt(att.filename);
   const mimeType = att.mimeType || guessMime(ext);
-  const blobUrl  = base64ToBlobUrl(att.data, mimeType);
+
+  // ── Fast path: R2 direct URL (no base64 roundtrip — loads instantly) ──
+  if (att.r2Url) {
+    if (action === "download") {
+      // For download: fetch the file and trigger save
+      triggerDownloadFromUrl(att.r2Url, att.filename);
+      return;
+    }
+    openViewer(att.r2Url, att.filename, ext, mimeType, false /* not a blob */);
+    return;
+  }
+
+  // ── Slow path: base64 data (sent mail KV or legacy fallback) ──
+  if (!att.data) {
+    showAttachmentError("This attachment cannot be retrieved. It may be from before the R2 migration.");
+    return;
+  }
+
+  const blobUrl = base64ToBlobUrl(att.data, mimeType);
 
   if (action === "download") {
     triggerDownload(blobUrl, att.filename);
@@ -752,37 +770,40 @@ async function openAttachment(mailId, mailType, index, action) {
     return;
   }
 
-  openViewer(blobUrl, att.filename, ext, mimeType);
+  openViewer(blobUrl, att.filename, ext, mimeType, true /* is a blob */);
 }
 
 // ── VIEWER ─────────────────────────────────────────────────────
-function openViewer(blobUrl, filename, ext, mimeType) {
-  if (viewerBlobUrl) URL.revokeObjectURL(viewerBlobUrl);
-  viewerBlobUrl = blobUrl;
+// isBlob=true  → URL is a blob:// — revoke when done
+// isBlob=false → URL is a real https:// R2 URL — never revoke
+function openViewer(url, filename, ext, mimeType, isBlob = true) {
+  if (viewerBlobUrl) { URL.revokeObjectURL(viewerBlobUrl); viewerBlobUrl = null; }
+  if (isBlob) viewerBlobUrl = url;
 
   document.getElementById("viewer-filename").textContent = filename;
 
   const dlBtn = document.getElementById("viewer-download-btn");
-  dlBtn.dataset.blobUrl  = blobUrl;
+  dlBtn.dataset.blobUrl  = url;
   dlBtn.dataset.filename = filename;
+  dlBtn.dataset.isBlob   = isBlob ? "1" : "0";
 
   const content = document.getElementById("viewer-content");
   content.innerHTML = "";
 
-  if (IMAGE_EXTS.has(ext)) {
-    content.innerHTML = `<img src="${blobUrl}" alt="${esc(filename)}" class="viewer-img" />`;
+  if (IMAGE_EXTS.has(ext) || (mimeType && mimeType.startsWith("image/"))) {
+    content.innerHTML = `<img src="${url}" alt="${esc(filename)}" class="viewer-img" />`;
 
   } else if (VIDEO_EXTS.has(ext) || (mimeType && mimeType.startsWith("video/"))) {
-    content.innerHTML = `<video controls class="viewer-media" src="${blobUrl}"></video>`;
+    content.innerHTML = `<video controls class="viewer-media" src="${url}"></video>`;
 
   } else if (AUDIO_EXTS.has(ext) || (mimeType && mimeType.startsWith("audio/"))) {
-    content.innerHTML = `<audio controls class="viewer-media" src="${blobUrl}"></audio>`;
+    content.innerHTML = `<audio controls class="viewer-media" src="${url}"></audio>`;
 
   } else if (PDF_EXTS.has(ext)) {
-    content.innerHTML = `<iframe src="${blobUrl}" class="viewer-frame" title="${esc(filename)}"></iframe>`;
+    content.innerHTML = `<iframe src="${url}" class="viewer-frame" title="${esc(filename)}"></iframe>`;
 
   } else if (TEXT_EXTS.has(ext)) {
-    fetch(blobUrl)
+    fetch(url)
       .then(r => r.text())
       .then(txt => {
         content.innerHTML = `<pre class="viewer-text">${esc(txt)}</pre>`;
@@ -800,6 +821,7 @@ function openViewer(blobUrl, filename, ext, mimeType) {
 function closeViewer() {
   document.getElementById("viewer-modal").classList.add("hidden");
   document.getElementById("viewer-content").innerHTML = "";
+  // Only revoke blob:// URLs — never revoke real R2 https:// URLs
   if (viewerBlobUrl) {
     URL.revokeObjectURL(viewerBlobUrl);
     viewerBlobUrl = null;
@@ -843,6 +865,20 @@ function triggerDownload(blobUrl, filename) {
   document.body.removeChild(a);
 }
 
+// Download from a real https:// URL (R2 direct) — fetch → blob → save
+async function triggerDownloadFromUrl(url, filename) {
+  try {
+    const res   = await fetch(url);
+    if (!res.ok) throw new Error("Fetch failed");
+    const blob  = await res.blob();
+    const bUrl  = URL.createObjectURL(blob);
+    triggerDownload(bUrl, filename);
+    setTimeout(() => URL.revokeObjectURL(bUrl), 5000);
+  } catch {
+    showToast("Download failed — try again.", "error");
+  }
+}
+
 function formatSize(bytes) {
   if (!bytes) return "? KB";
   if (bytes < 1024)        return `${bytes} B`;
@@ -881,33 +917,27 @@ function cleanFrom(from, mailType) {
     return bare.length > 38 ? bare.slice(0, 36) + "\u2026" : bare;
   }
 
-  // ── RECEIVED MAIL ──
-  // Prefer display name if it looks like a real human name
-  // (not UUID/hash, not an email address itself, not too short)
-  if (displayName
-    && displayName.length >= 2
-    && !displayName.includes("@")
-    && !/^[0-9a-f\-]{12,}$/i.test(displayName)
-  ) {
-    return displayName.length > 28 ? displayName.slice(0, 26) + "\u2026" : displayName;
-  }
-
-  // No good display name — use email address
+  // ── RECEIVED MAIL — always show full email address ──
+  // Show the full email (local@domain) so the user knows who sent it.
   if (email) {
     const local  = email.split("@")[0] || "";
     const domain = email.split("@")[1] || "";
-    // Local part is a UUID/hash or absurdly long → just show domain
-    if (/^[0-9a-f\-]{12,}$/i.test(local) || local.length > 28) {
-      return domain.length > 30 ? domain.slice(0, 28) + "\u2026" : domain;
+    // If local part is a UUID/hash → show domain only (no useful info in local)
+    if (/^[0-9a-f\-]{12,}$/i.test(local) || local.length > 30) {
+      return domain.length > 32 ? domain.slice(0, 30) + "\u2026" : domain;
     }
-    // Normal email — show as-is, truncate if very long
+    // Normal: show full email, smart-truncate only if very long
     const full = email;
-    if (full.length <= 34) return full;
-    return local.slice(0, 14) + "\u2026@" + domain.split(".")[0];
+    if (full.length <= 36) return full;
+    return local.slice(0, 14) + "\u2026@" + domain;
   }
 
-  // Last resort: raw string
-  return s.length > 28 ? s.slice(0, 26) + "\u2026" : s;
+  // Fallback: no email found — use display name or raw string
+  if (displayName && displayName.length >= 2) {
+    return displayName.length > 30 ? displayName.slice(0, 28) + "\u2026" : displayName;
+  }
+
+  return s.length > 30 ? s.slice(0, 28) + "\u2026" : s;
 }
 
 function esc(str) {
