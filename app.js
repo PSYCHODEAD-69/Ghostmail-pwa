@@ -563,14 +563,16 @@ function showDetail(id, type) {
         ${mail.attachments.map((a, i) => {
           const ext       = getExt(a.filename || "");
           const sizeLabel = formatSize(a.size);
-          const canView   = VIEWABLE_EXTS.has(ext) && !DOWNLOAD_ONLY_EXTS.has(ext);
+          // canView: extension in viewable set, not download-only, or known media mimeType
+          const mimeIsViewable = /^(image|video|audio|text)\//.test(a.mimeType || "") || (a.mimeType || "") === "application/pdf";
+          const canView   = (VIEWABLE_EXTS.has(ext) && !DOWNLOAD_ONLY_EXTS.has(ext)) || (mimeIsViewable && !DOWNLOAD_ONLY_EXTS.has(ext));
           const truncName = truncateFilename(a.filename || "unknown", 24);
           return `<div class="att-item">
             <div class="att-name-row">
               <span class="att-name" title="${esc(a.filename)}">${esc(truncName)}</span>
               <div class="att-btns">
-                ${canView ? `<button class="att-view-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}">VIEW</button>` : ""}
-                <button class="att-dl-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}">DL</button>
+                ${canView ? `<button class="att-view-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}" data-action="view">VIEW</button>` : ""}
+                <button class="att-dl-btn" data-index="${i}" data-mail-id="${esc(id)}" data-mail-type="${type}" data-action="dl">DL</button>
               </div>
             </div>
             <span class="att-size">${sizeLabel}</span>
@@ -722,9 +724,16 @@ async function openAttachment(mailId, mailType, index, action) {
     showToast("Network error loading attachment.", "error");
     return;
   } finally {
-    // ── BUG 1 FIX: Restore each button to its own original label ──
+    // Restore each button to its own original label using data-action
     viewBtns.forEach(b => { b.disabled = false; b.textContent = "VIEW"; });
     dlBtns.forEach(b  => { b.disabled = false; b.textContent = "DL"; });
+    // Also restore any button that matched by both classes (fallback)
+    document.querySelectorAll(
+      `button[data-mail-id="${mailId}"][data-index="${index}"]`
+    ).forEach(b => {
+      b.disabled = false;
+      b.textContent = (b.dataset.action === "view") ? "VIEW" : "DL";
+    });
   }
 
   if (!att) { showToast("Attachment not found.", "error"); return; }
@@ -763,10 +772,10 @@ function openViewer(blobUrl, filename, ext, mimeType) {
   if (IMAGE_EXTS.has(ext)) {
     content.innerHTML = `<img src="${blobUrl}" alt="${esc(filename)}" class="viewer-img" />`;
 
-  } else if (VIDEO_EXTS.has(ext)) {
+  } else if (VIDEO_EXTS.has(ext) || (mimeType && mimeType.startsWith("video/"))) {
     content.innerHTML = `<video controls class="viewer-media" src="${blobUrl}"></video>`;
 
-  } else if (AUDIO_EXTS.has(ext)) {
+  } else if (AUDIO_EXTS.has(ext) || (mimeType && mimeType.startsWith("audio/"))) {
     content.innerHTML = `<audio controls class="viewer-media" src="${blobUrl}"></audio>`;
 
   } else if (PDF_EXTS.has(ext)) {
@@ -841,9 +850,9 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-// ── BUG 2, 4, 7 FIX: cleanFrom ────────────────────────────────
+// ── cleanFrom ─────────────────────────────────────────────────
 // Backend stores sent mail `from` as: "alias <alias@psychodead.qzz.io>"
-// Received mail `from` is raw email address or "Name <email@domain>"
+// Received mail `from` is the RFC5322 From: header e.g. "Name <email@domain>"
 function cleanFrom(from, mailType) {
   if (!from) return "";
   const s = from.trim();
@@ -861,20 +870,25 @@ function cleanFrom(from, mailType) {
       .replace(/^["'\s]+|["'\s]+$/g, "").trim();
   }
 
-  // ── SENT MAIL: show full alias@domain (e.g. unknown@psychodead.qzz.io) ──
+  // ── SENT MAIL: ALWAYS show full alias@domain — ignore displayName ──
+  // Backend stores "alias <alias@psychodead.qzz.io>", so email is always set.
   if (mailType === "sent") {
     if (email) {
-      // email is e.g. "unknown@psychodead.qzz.io" — show as-is, truncate if very long
-      return email.length > 35 ? email.slice(0, 33) + "\u2026" : email;
+      return email.length > 38 ? email.slice(0, 36) + "\u2026" : email;
     }
-    // Fallback: s might be just "alias" without angle brackets
+    // Fallback: bare string — append domain if missing
     const bare = s.includes("@") ? s : `${s}@${DOMAIN}`;
-    return bare.length > 35 ? bare.slice(0, 33) + "\u2026" : bare;
+    return bare.length > 38 ? bare.slice(0, 36) + "\u2026" : bare;
   }
 
   // ── RECEIVED MAIL ──
-  // Use display name if it looks real (not UUID/hash/empty)
-  if (displayName && displayName.length >= 2 && !/^[0-9a-f\-]{12,}$/i.test(displayName)) {
+  // Prefer display name if it looks like a real human name
+  // (not UUID/hash, not an email address itself, not too short)
+  if (displayName
+    && displayName.length >= 2
+    && !displayName.includes("@")
+    && !/^[0-9a-f\-]{12,}$/i.test(displayName)
+  ) {
     return displayName.length > 28 ? displayName.slice(0, 26) + "\u2026" : displayName;
   }
 
@@ -882,13 +896,13 @@ function cleanFrom(from, mailType) {
   if (email) {
     const local  = email.split("@")[0] || "";
     const domain = email.split("@")[1] || "";
-    // If local part looks like a UUID/hash or is too long → show just the domain
+    // Local part is a UUID/hash or absurdly long → just show domain
     if (/^[0-9a-f\-]{12,}$/i.test(local) || local.length > 28) {
-      return domain.length > 28 ? domain.slice(0, 26) + "\u2026" : domain;
+      return domain.length > 30 ? domain.slice(0, 28) + "\u2026" : domain;
     }
-    // Normal: show full email, truncate intelligently if too long
+    // Normal email — show as-is, truncate if very long
     const full = email;
-    if (full.length <= 32) return full;
+    if (full.length <= 34) return full;
     return local.slice(0, 14) + "\u2026@" + domain.split(".")[0];
   }
 
@@ -963,8 +977,11 @@ function showConfirmDialog(title, subtitle, onConfirm, onCancel) {
   requestAnimationFrame(() => overlay.classList.add("visible"));
 
   const close = () => {
+    // Immediately disable all buttons to prevent double-fire during fade-out
+    overlay.querySelectorAll("button").forEach(b => b.disabled = true);
+    overlay.style.pointerEvents = "none";
     overlay.classList.remove("visible");
-    setTimeout(() => overlay.remove(), 200);
+    setTimeout(() => overlay.remove(), 250);
   };
 
   // stopPropagation prevents click from bubbling to the overlay
