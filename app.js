@@ -3,43 +3,32 @@ const BACKEND = "https://ghostmail-backend.devpandey618.workers.dev";
 const DOMAIN  = "psychodead.qzz.io";
 
 // ── SAFE VIEWABLE EXTENSIONS ──────────────────────────────────
-// Only these extensions get a VIEW button; rest get DOWNLOAD only
 const VIEWABLE_EXTS = new Set([
-  // Images
   "jpg","jpeg","png","gif","webp","svg","bmp","ico","avif",
-  // Video
   "mp4","webm","mov","ogg","ogv",
-  // Audio
-  "mp3","wav","ogg","m4a","flac","aac",
-  // Documents
+  "mp3","wav","m4a","flac","aac",
   "pdf",
-  // Text / code (rendered as plain text)
   "txt","csv","log","md","json","xml","html","htm","css","js","ts",
-  // Office — download only even if listed, handled below
   "docx","doc","xlsx","xls","pptx","ppt",
-  // Archive — download only
   "zip","rar","7z","tar","gz",
 ]);
 
-// These need special viewer treatment
-const IMAGE_EXTS   = new Set(["jpg","jpeg","png","gif","webp","svg","bmp","ico","avif"]);
-const VIDEO_EXTS   = new Set(["mp4","webm","mov","ogg","ogv"]);
-const AUDIO_EXTS   = new Set(["mp3","wav","ogg","m4a","flac","aac"]);
-const PDF_EXTS     = new Set(["pdf"]);
-const TEXT_EXTS    = new Set(["txt","csv","log","md","json","xml","css","js","ts"]);
-
-// These get download only despite being in VIEWABLE_EXTS
+const IMAGE_EXTS         = new Set(["jpg","jpeg","png","gif","webp","svg","bmp","ico","avif"]);
+const VIDEO_EXTS         = new Set(["mp4","webm","mov","ogg","ogv"]);
+const AUDIO_EXTS         = new Set(["mp3","wav","ogg","m4a","flac","aac"]);
+const PDF_EXTS           = new Set(["pdf"]);
+const TEXT_EXTS          = new Set(["txt","csv","log","md","json","xml","css","js","ts"]);
 const DOWNLOAD_ONLY_EXTS = new Set(["docx","doc","xlsx","xls","pptx","ppt","zip","rar","7z","tar","gz"]);
 
 // ── STATE ─────────────────────────────────────────────────────
-let token          = localStorage.getItem("gm_token") || null;
-let attachFiles    = [];
-let currentMailId  = null;
-let currentMailType = "sent"; // "sent" | "inbox"
-let selectedMails  = new Set();
-let selectionMode  = false;
-let activeSubtab   = "inbox"; // "inbox" | "sent"
-let viewerBlobUrl  = null;
+let token           = localStorage.getItem("gm_token") || null;
+let attachFiles     = [];
+let currentMailId   = null;
+let currentMailType = "sent";
+let selectedMails   = new Set();
+let selectionMode   = false;
+let activeSubtab    = "inbox";
+let viewerBlobUrl   = null;
 
 // ── INIT ──────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
@@ -64,16 +53,13 @@ function showApp() {
 
 // ── BIND EVENTS ───────────────────────────────────────────────
 function bindEvents() {
-  // Login
   document.getElementById("login-btn").addEventListener("click", doLogin);
   document.getElementById("login-password").addEventListener("keydown", e => {
     if (e.key === "Enter") doLogin();
   });
 
-  // Logout
   document.getElementById("logout-btn").addEventListener("click", doLogout);
 
-  // Theme
   const themeCheckbox = document.getElementById("theme-checkbox");
   themeCheckbox.addEventListener("change", () => {
     const theme = themeCheckbox.checked ? "light" : "dark";
@@ -81,17 +67,14 @@ function bindEvents() {
     localStorage.setItem("gm_theme", theme);
   });
 
-  // Main tabs
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
 
-  // Sub-tabs (inbox / sent)
   document.querySelectorAll(".subtab-btn").forEach(btn => {
     btn.addEventListener("click", () => switchSubtab(btn.dataset.subtab));
   });
 
-  // Alias input
   const aliasInput = document.getElementById("from-alias");
   aliasInput.addEventListener("focus", onAliasInput);
   aliasInput.addEventListener("input", onAliasInput);
@@ -99,23 +82,19 @@ function bindEvents() {
     setTimeout(() => hideAliasSuggestions(), 150);
   });
 
-  // File attach
   document.getElementById("attach-btn").addEventListener("click", () => {
     document.getElementById("file-input").click();
   });
   document.getElementById("file-input").addEventListener("change", onFileSelect);
 
-  // Compose actions
   document.getElementById("preview-btn").addEventListener("click", showPreview);
   document.getElementById("cancel-btn").addEventListener("click", clearCompose);
   document.getElementById("send-btn").addEventListener("click", doSend);
 
-  // Preview modal
   document.getElementById("close-preview").addEventListener("click", closePreview);
   document.getElementById("preview-close-btn").addEventListener("click", closePreview);
   document.getElementById("preview-send-btn").addEventListener("click", doSend);
 
-  // History toolbar
   document.getElementById("refresh-history-btn").addEventListener("click", () => {
     if (activeSubtab === "inbox") loadInbox();
     else loadHistory();
@@ -123,12 +102,10 @@ function bindEvents() {
   document.getElementById("delete-selected-btn").addEventListener("click", deleteSelectedMails);
   document.getElementById("cancel-selection-btn").addEventListener("click", exitSelectionMode);
 
-  // Detail modal
   document.getElementById("close-detail").addEventListener("click", closeDetail);
   document.getElementById("detail-close-btn").addEventListener("click", closeDetail);
   document.getElementById("delete-mail-btn").addEventListener("click", deleteMail);
 
-  // Viewer modal
   document.getElementById("close-viewer").addEventListener("click", closeViewer);
   document.getElementById("viewer-close-btn").addEventListener("click", closeViewer);
   document.getElementById("viewer-download-btn").addEventListener("click", () => {
@@ -438,6 +415,7 @@ function renderMailList(el, mails, type) {
 
   if (!mails.length) {
     el.innerHTML = `<div class="history-empty">${emptyMsg}</div>`;
+    storeMailsLocally([], type);
     return;
   }
 
@@ -574,7 +552,7 @@ function showDetail(id, type) {
     ? `<span class="detail-type-badge incoming">INCOMING</span> MAIL`
     : `<span class="detail-type-badge outgoing">OUTGOING</span> MAIL`;
 
-  const toStr = Array.isArray(mail.to) ? mail.to.join(", ") : (mail.to || "");
+  const toStr    = Array.isArray(mail.to) ? mail.to.join(", ") : (mail.to || "");
   const dateField = mail.receivedAt || mail.sentAt;
 
   let attachHtml = "";
@@ -586,7 +564,7 @@ function showDetail(id, type) {
           const ext       = getExt(a.filename || "");
           const sizeLabel = formatSize(a.size);
           const canView   = VIEWABLE_EXTS.has(ext) && !DOWNLOAD_ONLY_EXTS.has(ext);
-          const truncName = truncateFilename(a.filename || "unknown", 18);
+          const truncName = truncateFilename(a.filename || "unknown", 24);
           return `<div class="att-item">
             <div class="att-name-row">
               <span class="att-name" title="${esc(a.filename)}">${esc(truncName)}</span>
@@ -604,24 +582,40 @@ function showDetail(id, type) {
 
   const el = document.getElementById("detail-content");
 
-  // Render body: if it contains HTML tags, render as HTML in sandboxed iframe-like div
-  // Otherwise render as plain text with links auto-detected
+  // ── BUG 6 FIX: Robust HTML detection + safe rendering ──────
   const rawBody = mail.body || "(No body)";
 
-  // Detect HTML: either real tags or raw href/anchor patterns
-  const hasHtml = /<\s*(a|b|i|u|p|br|div|span|img|h[1-6]|ul|ol|li|table|td|tr|strong|em)\b/i.test(rawBody)
-    || /href\s*=/i.test(rawBody);
+  // Detect if body contains real HTML markup
+  const hasHtml = /<\s*(a|b|i|u|p|br|div|span|img|h[1-6]|ul|ol|li|table|td|tr|th|tbody|thead|strong|em|font|center|blockquote|pre|code|hr)\b/i.test(rawBody)
+    || /href\s*=/i.test(rawBody)
+    || /&lt;a[\s>]/i.test(rawBody);
 
   let bodyHtml;
   if (hasHtml) {
-    // Sanitize: strip dangerous tags/attrs, keep safe ones
-    const sanitized = rawBody
+    // Decode double-escaped entities first (some mail clients double-escape)
+    let decoded = rawBody
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+
+    // Sanitize: remove dangerous tags and event handlers
+    const sanitized = decoded
       .replace(/<script[\s\S]*?<\/script>/gi, "")
       .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/\s*on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "")
-      .replace(/javascript\s*:/gi, "")
-      // Make all <a> tags open in new tab safely
-      .replace(/<a\s/gi, '<a target="_blank" rel="noopener noreferrer" ');
+      .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "")
+      .replace(/javascript\s*:/gi, "about:")
+      // Add target="_blank" to <a> tags that don't already have it
+      .replace(/<a(?![^>]*target=)([^>]*)(href=[^>]*>)/gi, '<a target="_blank" rel="noopener noreferrer"$1$2')
+      // Also handle <a> tags that already have target — ensure rel is safe
+      .replace(/<a([^>]*target=["'][^"']*["'][^>]*)>/gi, (match) => {
+        if (!match.includes("rel=")) {
+          return match.replace(/>$/, ' rel="noopener noreferrer">');
+        }
+        return match;
+      });
+
     bodyHtml = `<div class="detail-body detail-body-html">${sanitized}</div>`;
   } else {
     // Plain text: escape then auto-linkify URLs
@@ -641,7 +635,7 @@ function showDetail(id, type) {
     ${attachHtml}
     ${bodyHtml}`;
 
-  // Bind attachment buttons (need full data — fetch from backend)
+  // Bind attachment buttons
   el.querySelectorAll(".att-view-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       openAttachment(btn.dataset.mailId, btn.dataset.mailType, parseInt(btn.dataset.index), "view");
@@ -658,54 +652,57 @@ function showDetail(id, type) {
 
 function closeDetail() {
   document.getElementById("detail-modal").classList.add("hidden");
-  currentMailId = null;
+  currentMailId   = null;
+  currentMailType = null;
 }
 
+// ── BUG 3 FIX: Capture mailId/mailType before async — prevent cancel-then-delete ──
 async function deleteMail() {
   if (!currentMailId) return;
-  showConfirmDialog("Delete this mail?", "This action cannot be undone.", async () => {
-    const route = currentMailType === "inbox" ? "inbox" : "history";
-    try {
-      const res = await fetch(`${BACKEND}/${route}/${encodeURIComponent(currentMailId)}`, {
-        method:  "DELETE",
-        headers: { "Authorization": `Bearer ${token}` },
-      });
-      if (res.status === 401) { doLogout(); return; }
-      closeDetail();
-      if (currentMailType === "inbox") loadInbox();
-      else loadHistory();
-    } catch {
-      showToast("Delete failed — try again.", "error");
-    }
-  });
+  // Capture at the time the button is pressed — closeDetail() nulls these
+  const mailId   = currentMailId;
+  const mailType = currentMailType;
+
+  showConfirmDialog(
+    "Delete this mail?",
+    "This action cannot be undone.",
+    async () => {
+      // onConfirm: user pressed DELETE
+      const route = mailType === "inbox" ? "inbox" : "history";
+      try {
+        const res = await fetch(`${BACKEND}/${route}/${encodeURIComponent(mailId)}`, {
+          method:  "DELETE",
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+        if (res.status === 401) { doLogout(); return; }
+        closeDetail();
+        if (mailType === "inbox") loadInbox();
+        else loadHistory();
+      } catch {
+        showToast("Delete failed — try again.", "error");
+      }
+    },
+    null // onCancel: do nothing — just close dialog
+  );
 }
 
 // ── ATTACHMENT OPEN ────────────────────────────────────────────
-// Since list response strips attachment data, we need to fetch the full mail from KV.
-// We do this by re-fetching history/inbox and finding the mail.
-// (Backend doesn't have a single-mail GET — we just use cached local data that includes
-//  attachment metadata. For actual file data we re-fetch the full list if needed.)
-// 
-// IMPORTANT: The list endpoint already strips `data` field. So we need to store
-// the full data somewhere. Strategy: on detail open, if attachment data is missing,
-// we fetch the full mail separately.
-//
-// Since the backend doesn't have a /history/:id GET endpoint (only list),
-// we add a smarter approach: store full attachment data in a local cache per mail
-// the first time it's fetched (we keep it in window._fullMailCache).
-
 async function openAttachment(mailId, mailType, index, action) {
   const route = mailType === "inbox" ? "inbox" : "history";
 
-  // Show loading state on the button
-  const btns = document.querySelectorAll(
-    `[data-mail-id="${mailId}"][data-index="${index}"]`
+  // Show loading state — use class to identify button type
+  const viewBtns = document.querySelectorAll(
+    `.att-view-btn[data-mail-id="${mailId}"][data-index="${index}"]`
   );
-  btns.forEach(b => { b.disabled = true; b.textContent = "…"; });
+  const dlBtns = document.querySelectorAll(
+    `.att-dl-btn[data-mail-id="${mailId}"][data-index="${index}"]`
+  );
+  const allBtns = [...viewBtns, ...dlBtns];
+
+  allBtns.forEach(b => { b.disabled = true; b.textContent = "…"; });
 
   let att;
   try {
-    // Fetch single attachment data from backend (R2 for inbox, KV for sent)
     const res = await fetch(
       `${BACKEND}/${route}/${encodeURIComponent(mailId)}/attachment/${index}`,
       { method: "GET", headers: { "Authorization": `Bearer ${token}` } }
@@ -725,15 +722,13 @@ async function openAttachment(mailId, mailType, index, action) {
     showToast("Network error loading attachment.", "error");
     return;
   } finally {
-    btns.forEach(b => {
-      b.disabled = false;
-      b.textContent = action === "view" ? "VIEW" : "DL";
-    });
+    // ── BUG 1 FIX: Restore each button to its own original label ──
+    viewBtns.forEach(b => { b.disabled = false; b.textContent = "VIEW"; });
+    dlBtns.forEach(b  => { b.disabled = false; b.textContent = "DL"; });
   }
 
   if (!att) { showToast("Attachment not found.", "error"); return; }
   if (!att.data) {
-    // Check if this was a legacy mail
     showAttachmentError("This attachment is from before the R2 migration and cannot be retrieved. Newer mails will work fine.");
     return;
   }
@@ -753,7 +748,6 @@ async function openAttachment(mailId, mailType, index, action) {
 
 // ── VIEWER ─────────────────────────────────────────────────────
 function openViewer(blobUrl, filename, ext, mimeType) {
-  // Revoke previous blob
   if (viewerBlobUrl) URL.revokeObjectURL(viewerBlobUrl);
   viewerBlobUrl = blobUrl;
 
@@ -779,7 +773,6 @@ function openViewer(blobUrl, filename, ext, mimeType) {
     content.innerHTML = `<iframe src="${blobUrl}" class="viewer-frame" title="${esc(filename)}"></iframe>`;
 
   } else if (TEXT_EXTS.has(ext)) {
-    // Fetch blob as text and display in pre
     fetch(blobUrl)
       .then(r => r.text())
       .then(txt => {
@@ -848,6 +841,9 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+// ── BUG 2, 4, 7 FIX: cleanFrom ────────────────────────────────
+// Backend stores sent mail `from` as: "alias <alias@psychodead.qzz.io>"
+// Received mail `from` is raw email address or "Name <email@domain>"
 function cleanFrom(from, mailType) {
   if (!from) return "";
   const s = from.trim();
@@ -865,31 +861,38 @@ function cleanFrom(from, mailType) {
       .replace(/^["'\s]+|["'\s]+$/g, "").trim();
   }
 
-  // ── SENT MAIL: show full alias@domain ──
+  // ── SENT MAIL: show full alias@domain (e.g. unknown@psychodead.qzz.io) ──
   if (mailType === "sent") {
-    if (email) return email.length > 32 ? email.slice(0,30) + "\u2026" : email;
-    return s.length > 32 ? s.slice(0, 30) + "\u2026" : s;
+    if (email) {
+      // email is e.g. "unknown@psychodead.qzz.io" — show as-is, truncate if very long
+      return email.length > 35 ? email.slice(0, 33) + "\u2026" : email;
+    }
+    // Fallback: s might be just "alias" without angle brackets
+    const bare = s.includes("@") ? s : `${s}@${DOMAIN}`;
+    return bare.length > 35 ? bare.slice(0, 33) + "\u2026" : bare;
   }
 
   // ── RECEIVED MAIL ──
-  // Use display name if it looks real (not UUID/hash)
+  // Use display name if it looks real (not UUID/hash/empty)
   if (displayName && displayName.length >= 2 && !/^[0-9a-f\-]{12,}$/i.test(displayName)) {
     return displayName.length > 28 ? displayName.slice(0, 26) + "\u2026" : displayName;
   }
 
-  // No good display name — use email
+  // No good display name — use email address
   if (email) {
     const local  = email.split("@")[0] || "";
     const domain = email.split("@")[1] || "";
-    // Hash/UUID local → show domain
+    // If local part looks like a UUID/hash or is too long → show just the domain
     if (/^[0-9a-f\-]{12,}$/i.test(local) || local.length > 28) {
       return domain.length > 28 ? domain.slice(0, 26) + "\u2026" : domain;
     }
-    // Normal: show local@domain, truncate if long
+    // Normal: show full email, truncate intelligently if too long
     const full = email;
-    return full.length > 30 ? local.slice(0, 12) + "\u2026@" + domain : full;
+    if (full.length <= 32) return full;
+    return local.slice(0, 14) + "\u2026@" + domain.split(".")[0];
   }
 
+  // Last resort: raw string
   return s.length > 28 ? s.slice(0, 26) + "\u2026" : s;
 }
 
@@ -925,20 +928,20 @@ function showSuc(el, msg) {
 function hideMsg(el) { if (el) el.classList.add("hidden"); }
 
 // ── FILENAME TRUNCATION ───────────────────────────────────────
-// Middle truncate: "Screenshot_2026-04-08...45.jpg" — keeps extension visible
+// Middle truncate: "Screenshot_2026…45.jpg" — keeps extension visible
 function truncateFilename(name, maxLen) {
   if (!name || name.length <= maxLen) return name;
-  const dot = name.lastIndexOf(".");
+  const dot  = name.lastIndexOf(".");
   const ext  = dot > 0 ? name.slice(dot) : "";
   const base = dot > 0 ? name.slice(0, dot) : name;
-  const keep = maxLen - ext.length - 3; // 3 for "..."
+  const keep = maxLen - ext.length - 3; // 3 for "…"
   if (keep < 4) return name.slice(0, maxLen - 1) + "…";
   return base.slice(0, Math.ceil(keep / 2)) + "…" + base.slice(-Math.floor(keep / 2)) + ext;
 }
 
 // ── CUSTOM CONFIRM DIALOG ─────────────────────────────────────
+// BUG 3 FIX: stopPropagation on buttons prevents overlay-click from firing after button click
 function showConfirmDialog(title, subtitle, onConfirm, onCancel) {
-  // Remove existing
   const existing = document.getElementById("custom-confirm-overlay");
   if (existing) existing.remove();
 
@@ -959,11 +962,26 @@ function showConfirmDialog(title, subtitle, onConfirm, onCancel) {
   document.body.appendChild(overlay);
   requestAnimationFrame(() => overlay.classList.add("visible"));
 
-  const close = () => { overlay.classList.remove("visible"); setTimeout(() => overlay.remove(), 200); };
+  const close = () => {
+    overlay.classList.remove("visible");
+    setTimeout(() => overlay.remove(), 200);
+  };
 
-  overlay.querySelector(".custom-confirm-cancel").addEventListener("click", () => { close(); if (onCancel) onCancel(); });
-  overlay.querySelector(".custom-confirm-ok").addEventListener("click", () => { close(); if (onConfirm) onConfirm(); });
-  overlay.addEventListener("click", e => { if (e.target === overlay) { close(); if (onCancel) onCancel(); } });
+  // stopPropagation prevents click from bubbling to the overlay
+  overlay.querySelector(".custom-confirm-cancel").addEventListener("click", (e) => {
+    e.stopPropagation();
+    close();
+    if (onCancel) onCancel();
+  });
+  overlay.querySelector(".custom-confirm-ok").addEventListener("click", (e) => {
+    e.stopPropagation();
+    close();
+    if (onConfirm) onConfirm();
+  });
+  // Clicking the dark backdrop = cancel
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) { close(); if (onCancel) onCancel(); }
+  });
 }
 
 // ── ATTACHMENT ERROR TOAST ────────────────────────────────────
