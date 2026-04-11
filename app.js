@@ -49,7 +49,6 @@ function showApp() {
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("app-screen").classList.remove("hidden");
   loadAliases();
-  setupPushNotifications();
 }
 
 // ── BIND EVENTS ───────────────────────────────────────────────
@@ -1032,58 +1031,4 @@ function showToast(msg, type = "info") {
   document.body.appendChild(t);
   requestAnimationFrame(() => t.classList.add("visible"));
   setTimeout(() => { t.classList.remove("visible"); setTimeout(() => t.remove(), 400); }, 4000);
-}
-
-// ── PUSH NOTIFICATIONS ────────────────────────────────────────
-async function setupPushNotifications() {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-
-  try {
-    // 1. Public VAPID key fetch karo backend se (no auth needed)
-    const keyRes = await fetch(`${BACKEND}/push/vapid-key`);
-    if (!keyRes.ok) return;
-    const { publicKey } = await keyRes.json();
-    if (!publicKey) return;
-
-    // 2. Service Worker ready hone ka wait karo
-    const reg = await navigator.serviceWorker.ready;
-
-    // 3. Already subscribed hai? Check karo
-    let sub = await reg.pushManager.getSubscription();
-
-    if (!sub) {
-      // 4. Notification permission maango
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") return;
-
-      // 5. Subscribe karo
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly:      true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-    }
-
-    // 6. Subscription backend pe save karo
-    await fetch(`${BACKEND}/push/subscribe`, {
-      method:  "POST",
-      headers: {
-        "Content-Type":  "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-      body: JSON.stringify(sub),
-    });
-
-  } catch (e) {
-    console.error("Push setup failed:", e);
-  }
-}
-
-// VAPID base64url → Uint8Array helper
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64  = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  const output  = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; i++) output[i] = rawData.charCodeAt(i);
-  return output;
 }
