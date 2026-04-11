@@ -427,7 +427,7 @@ function renderMailList(el, mails, type) {
     const isSelected = selectedMails.has(m.id);
     const dateField  = m.receivedAt || m.sentAt;
     const metaLine   = type === "inbox"
-      ? `<span class="meta-from">◀ ${esc(cleanFrom(m.from, "inbox"))}</span><span>▶ ${esc(m.to || "")}</span>`
+      ? `<span class="meta-from">◀ ${esc(cleanFrom(m.from, "inbox"))}</span><span>▶ ${esc(m.to || "")}</span>`;
       : `<span>▶ ${esc(Array.isArray(m.to) ? m.to.join(", ") : (m.to || ""))}</span><span class="meta-from">◀ ${esc(cleanFrom(m.from, "sent"))}</span>`;
 
     const hasAttach = m.attachments && m.attachments.length > 0;
