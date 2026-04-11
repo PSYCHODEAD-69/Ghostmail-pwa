@@ -427,7 +427,7 @@ function renderMailList(el, mails, type) {
     const isSelected = selectedMails.has(m.id);
     const dateField  = m.receivedAt || m.sentAt;
     const metaLine   = type === "inbox"
-      ? `<span class="meta-from">◀ ${esc(cleanFrom(m.from, "inbox"))}</span><span>▶ ${esc(m.to || "")}</span>`
+      ? `<span class="meta-from">${esc(cleanFrom(m.from, "inbox"))}</span><span>▶ ${esc(m.to || "")}</span>`
       : `<span>▶ ${esc(Array.isArray(m.to) ? m.to.join(", ") : (m.to || ""))}</span><span class="meta-from">◀ ${esc(cleanFrom(m.from, "sent"))}</span>`;
 
     const hasAttach = m.attachments && m.attachments.length > 0;
@@ -887,40 +887,56 @@ function formatSize(bytes) {
 }
 
 // ── cleanFrom ─────────────────────────────────────────────────
-// Sent mail from  : stored as "alias <alias@psychodead.qzz.io>"  → show email
-// Received mail from: stored as raw email "x@y.com" (new worker)
-//                     OR old format "Name <x@y.com>" (legacy mails)
-// Either way — ALWAYS extract and show the email address only.
+// Backend stores sent mail `from` as: "alias <alias@psychodead.qzz.io>"
+// Received mail `from` is the RFC5322 From: header e.g. "Name <email@domain>"
 function cleanFrom(from, mailType) {
   if (!from) return "";
   const s = from.trim();
 
-  // Step 1: try to extract email from angle brackets "Name <email@domain>"
-  const bracketMatch = s.match(/<([^>@\s]+@[^>\s]+)>/);
+  // Extract email from angle brackets: "Name <email@domain>"
+  const bracketMatch = s.match(/<([^>]+)>/);
+  const email = bracketMatch
+    ? bracketMatch[1].trim()
+    : (s.includes("@") ? s.trim() : null);
+
+  // Extract display name before the bracket
+  let displayName = "";
   if (bracketMatch) {
-    const email = bracketMatch[1].trim().toLowerCase();
-    return email.length > 38 ? email.slice(0, 36) + "\u2026" : email;
+    displayName = s.slice(0, s.lastIndexOf("<"))
+      .replace(/^["'\s]+|["'\s]+$/g, "").trim();
   }
 
-  // Step 2: no brackets — check if the whole string is already a bare email
-  if (s.includes("@")) {
-    const email = s.toLowerCase();
-    // Skip UUID/hash-only local parts
-    const local  = email.split("@")[0] || "";
-    const domain = email.split("@")[1] || "";
-    if (/^[0-9a-f\-]{12,}$/i.test(local) || local.length > 32) {
-      return domain.length > 34 ? domain.slice(0, 32) + "\u2026" : domain;
-    }
-    return email.length > 38 ? email.slice(0, 36) + "\u2026" : email;
-  }
-
-  // Step 3: sent mail fallback — append domain (shouldn't normally happen)
+  // ── SENT MAIL: ALWAYS show full alias@domain — ignore displayName ──
+  // Backend stores "alias <alias@psychodead.qzz.io>", so email is always set.
   if (mailType === "sent") {
-    const bare = `${s}@${DOMAIN}`;
+    if (email) {
+      return email.length > 38 ? email.slice(0, 36) + "\u2026" : email;
+    }
+    // Fallback: bare string — append domain if missing
+    const bare = s.includes("@") ? s : `${s}@${DOMAIN}`;
     return bare.length > 38 ? bare.slice(0, 36) + "\u2026" : bare;
   }
 
-  // Step 4: no email at all — truncate raw string
+  // ── RECEIVED MAIL — always show full email address ──
+  // Show the full email (local@domain) so the user knows who sent it.
+  if (email) {
+    const local  = email.split("@")[0] || "";
+    const domain = email.split("@")[1] || "";
+    // If local part is a UUID/hash → show domain only (no useful info in local)
+    if (/^[0-9a-f\-]{12,}$/i.test(local) || local.length > 30) {
+      return domain.length > 32 ? domain.slice(0, 30) + "\u2026" : domain;
+    }
+    // Normal: show full email, smart-truncate only if very long
+    const full = email;
+    if (full.length <= 36) return full;
+    return local.slice(0, 14) + "\u2026@" + domain;
+  }
+
+  // Fallback: no email found — use display name or raw string
+  if (displayName && displayName.length >= 2) {
+    return displayName.length > 30 ? displayName.slice(0, 28) + "\u2026" : displayName;
+  }
+
   return s.length > 30 ? s.slice(0, 28) + "\u2026" : s;
 }
 
