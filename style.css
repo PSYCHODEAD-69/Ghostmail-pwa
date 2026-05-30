@@ -135,7 +135,7 @@ html, body {
 }
 .login-logo { text-align: center; margin-bottom: 2.5rem; }
 .app-icon-large {
-  width: 72px; height: 72px; border-radius: 18px;
+  width: 72px; height: 72px; border-radius: 50%;
   border: 1px solid var(--border2);
   box-shadow: var(--glow-soft);
   margin: 0 auto 1rem; display: block; object-fit: cover;
@@ -311,7 +311,7 @@ input::placeholder, textarea::placeholder { color: var(--text3); font-weight: 40
 
 .header-logo { display: flex; align-items: center; gap: 0.6rem; }
 .app-icon-small {
-  width: 28px; height: 28px; border-radius: 7px;
+  width: 28px; height: 28px; border-radius: 50%;
   border: 1px solid var(--border2); object-fit: cover;
 }
 .header-title {
